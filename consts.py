@@ -1,5 +1,6 @@
 EMPTY_STRING = b''
 NULL_STRING = b'\0'
+NULL_BYTE = b'\x00'
 
 
 # Message part lengths in different encodings.

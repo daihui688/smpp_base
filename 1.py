@@ -1,46 +1,44 @@
-# data = "jj刚刚好".encode("utf-16be")
-# print(data,len(data))
-# import gsm0338
-# encoder = gsm0338.Codec()
-# print(encoder.encode("jjss")[0])
-# print("jjss".encode())
+import time
 
-import smpplib.client
-import smpplib.gsm
-import smpplib.consts
+from smpplib import client, consts
 
-# Replace these values with the ones provided by your SMS gateway provider
-SMSC_IP = 'localhost'
-SMSC_PORT = 7778
-SYSTEM_ID = 'login'
-PASSWORD = '12345'
+# 连接到SMSC
+host = '127.0.0.1'
+port = 7777
+username = 'login'
+password = '123'
 
-# Your own phone number
-MY_PHONE_NUMBER = '+8618279230916'
-MESSAGE = 'Hello, this is a test message.'
+client = client.Client(host, port)
+client.connect()
+client.bind_transceiver(system_id=username, password=password)
 
-# Create an SMPP client
-client = smpplib.client.Client(SMSC_IP, SMSC_PORT)
+# 构建要发送的短消息
+source_addr = '18720198878'
+destination_addr = '18279230916'
+message_text = b'Hello, World!'
 
-# Bind the client to the SMSC
-client.bind_transceiver(system_id=SYSTEM_ID, password=PASSWORD)
-
-# Send the message
+# 发送短消息
 client.send_message(
-    source_addr_ton=smpplib.consts.SMPP_TON_INTL,
-    source_addr_npi=smpplib.consts.SMPP_NPI_ISDN,
-    source_addr='YourBrand',
-    dest_addr_ton=smpplib.consts.SMPP_TON_INTL,
-    dest_addr_npi=smpplib.consts.SMPP_NPI_ISDN,
-    destination_addr=MY_PHONE_NUMBER,
-    short_message=MESSAGE,
-    data_coding=smpplib.consts.SMPP_ENCODING_DEFAULT,
-    esm_class=smpplib.consts.SMPP_MSGMODE_DEFAULT,
-    registered_delivery=True,
+    source_addr_ton=consts.SMPP_TON_INTL,
+    source_addr_npi=consts.SMPP_NPI_ISDN,
+    source_addr=source_addr,
+    destination_addr_ton=consts.SMPP_TON_INTL,
+    destination_addr_npi=consts.SMPP_NPI_ISDN,
+    destination_addr=destination_addr,
+    short_message=message_text,
 )
+time.sleep(1)
+# 获取 submit_sm_resp 的响应
+resp = client.read_pdu()
 
-# Close the connection
+message_id = resp.params['message_id']
+print('Message ID:', message_id)
+client.query_message(message_id=message_id, source_addr_ton=consts.SMPP_TON_INTL,
+                     source_addr_npi=consts.SMPP_NPI_ISDN,
+                     source_addr=source_addr)
+
+
+time.sleep(1)
+# 断开与SMSC的连接
 client.unbind()
 client.disconnect()
-
-
