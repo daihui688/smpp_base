@@ -12,12 +12,12 @@ def random_str():
     return fake.lexify(text="?" * fake.random_int(0, 200), letters=ascii_chars)
 
 
-def static_str(num):
+def random_strs(num):
     return fake.lexify(text="?" * num, letters=ascii_chars)
 
 
 def random_int():
-    return fake.random_int(0x00, 0x10)
+    return fake.random_int(0x00, 0xff)
 
 
 def random_byte():
@@ -86,7 +86,4 @@ class SMPPFuzz:
 
 
 if __name__ == "__main__":
-    while True:
-        session = SMPPFuzz("127.0.0.1", 7777)
-        session.connect()
-        session.fuu_bind_transceiver()
+    print(ascii_chars)

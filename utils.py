@@ -20,6 +20,10 @@ def get_optional_param_name(num):
             return name
 
 
+def get_tag(name):
+    return consts.OPTIONAL_PARAMS.get(name)
+
+
 def contains_chinese(message):
     for char in message:
         if '\u4e00' <= char <= '\u9fff':
