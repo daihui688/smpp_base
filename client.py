@@ -7,9 +7,9 @@ import time
 import config
 import consts
 from command import get_command_id, get_command_name
-from fuzz import fake,random_strs,random_int,random_bytes
+from fuzz import fuzzer
 from pdu import get_pdu
-from utils import get_optional_param_name, contains_chinese
+from utils import contains_chinese
 
 
 class SMPPClient:
@@ -48,6 +48,8 @@ class SMPPClient:
         self.client_state = consts.SMPP_CLIENT_STATE_OPEN
         t1 = threading.Thread(target=self.handle)
         t1.start()
+
+    def bind(self):
         self.bind_transceiver()
         time.sleep(0.1)
 
@@ -64,11 +66,12 @@ class SMPPClient:
         :param loop: 循环次数
         :param interval: 发送间隔
         """
+        self.bind()
         t2 = threading.Thread(target=self.enquire)
         t2.start()
         if 2 <= self.client_state <= 4:
             while True:
-                option = input("请输入你要执行的操作编号(0.测试,1.发送消息,2.模糊测试):")
+                option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
                 if option == "0":
                     self.query_sm(self.last_message_id)
                     time.sleep(interval)
@@ -80,15 +83,11 @@ class SMPPClient:
                         msg = input("请输入消息(输入q退出):")
                         if contains_chinese(msg):
                             self.data_coding = consts.SMPP_ENCODING_ISO10646
-                        if self.client_state in (consts.SMPP_CLIENT_STATE_BOUND_TX, consts.SMPP_CLIENT_STATE_BOUND_TRX):
-                            if msg.strip().upper() == "Q":
-                                break
-                            self.submit_sm(msg)
-                            # self.data_sm(msg)
-                            time.sleep(interval)
-                elif option == "2":
-                    for i in range(loop):
-                        self.fuzz(count, interval, "submit_sm")
+                        if msg.strip().upper() == "Q":
+                            break
+                        self.submit_sm(msg)
+                        # self.data_sm(msg)
+                        time.sleep(interval)
                 elif option == "q":
                     self.unbind()
                     break
@@ -188,13 +187,13 @@ class SMPPClient:
 
     def submit_sm(self, message):
         body = {
-            "service_type": consts.NULL_BYTE,
+            "service_type": "CMT",
             "source_addr_ton": consts.SMPP_TON_INTL,
             "source_addr_npi": consts.SMPP_NPI_ISDN,
             "source_addr": config.SOURCE_ADDR,
             "dest_addr_ton": consts.SMPP_TON_INTL,
             "dest_addr_npi": consts.SMPP_NPI_ISDN,
-            "destination_addr": config.DESTINATION_ADDR,
+            "destination_addr": "+8618279230916",
             "esm_class": 0,
             "protocol_id": consts.SMPP_PID_DEFAULT,
             "priority_flag": 0,
@@ -243,7 +242,7 @@ class SMPPClient:
 
     def parse_deliver_sm(self, resp, command_name):
         sm_length = resp[56]
-        short_message = resp[57:57 + sm_length]
+        # short_message = resp[57:57 + sm_length]
         optional_params = resp[57 + sm_length:]
         # print(sm_length)
         # print(short_message)
@@ -257,8 +256,8 @@ class SMPPClient:
             pdu.short_message = resp_data[-2]
         else:
             pdu.optional_params = resp_data[-1]
-            optional_param_type = struct.unpack(">H", pdu.optional_params[:2])[0]
-            optional_param_name = get_optional_param_name(optional_param_type)
+            # optional_param_type = struct.unpack(">H", pdu.optional_params[:2])[0]
+            # optional_param_name = get_optional_param_name(optional_param_type)
             # print(optional_param_name)
             optional_param_length = struct.unpack(">H", pdu.optional_params[2:4])[0]
             # print(optional_param_length)
@@ -289,7 +288,7 @@ class SMPPClient:
         pdu = get_pdu(command_name)(message_id=message_id)
         resp_data = pdu.unpack(resp)
         pdu.command_length, pdu.command_id, pdu.command_status, pdu.sequence_number, pdu.message_id, pdu.final_date, \
-        pdu.message_state, pdu.error_code = resp_data
+            pdu.message_state, pdu.error_code = resp_data
         if pdu.sequence_number == self.sequence_number:
             self.logger.info(f"消息状态:{pdu}")
 
@@ -357,7 +356,7 @@ class SMPPClient:
 
     def parse_alert_notification(self, resp):
         sm_length = resp[56]
-        short_message = resp[57:57 + sm_length]
+        # short_message = resp[57:57 + sm_length]
         optional_params = resp[57 + sm_length:]
         body = {
             "source_addr": config.SOURCE_ADDR,
@@ -373,8 +372,8 @@ class SMPPClient:
             pdu.short_message = resp_data[-2]
         else:
             pdu.optional_params = resp_data[-1]
-            optional_param_type = struct.unpack(">H", pdu.optional_params[:2])[0]
-            optional_param_name = get_optional_param_name(optional_param_type)
+            # optional_param_type = struct.unpack(">H", pdu.optional_params[:2])[0]
+            # optional_param_name = get_optional_param_name(optional_param_type)
             # print(optional_param_name)
             optional_param_length = struct.unpack(">H", pdu.optional_params[2:4])[0]
             # print(optional_param_length)
@@ -384,54 +383,37 @@ class SMPPClient:
         if pdu.command_status == consts.SMPP_ESME_ROK:
             self.deliver_sm_resp(pdu.sequence_number)
 
-    def fuzz(self, count, interval, command_name):
-        for _ in range(count):
-            command_id = get_command_id(command_name)
-            self.sequence_number += 1
-            params = {
-                "command_length": None,
-                "command_id": get_command_id(command_name),
-                "command_status": 0,
-                "sequence_number": self.sequence_number,
-                "service_type": b'\x00',
-                "source_addr_ton": random_int(),
-                "source_addr_npi": random_int(),
-                "source_addr": random_strs(22),
-                "dest_addr_ton": random_int(),
-                "dest_addr_npi": random_int(),
-                "destination_addr": random_strs(22),
-                "esm_class": random_int(),
-                "protocol_id": random_int(),
-                "priority_flag": random_int(),
-                "schedule_delivery_time": b'\x00',
-                "validity_period": b'\x00',
-                "registered_delivery": random_int(),
-                "replace_if_present_flag": random_int(),
-                "data_coding": self.data_coding,
-                "sm_default_msg_id": random_int(),
-                "message_bytes": random_bytes(255)
-            }
-            sm_length = fake.random_int(255,999)
-            struct1 = struct.Struct(f">LLLL6sBB21sBB21sBBB17s17sBBBBH{sm_length}s")
-            param = (struct1.size, command_id, 0, self.sequence_number, random_bytes(6), random_int(),
-                     random_int(), random_bytes(21), random_int(), random_int(), random_bytes(21),
-                     random_int(), random_int(), random_int(), random_bytes(17), random_bytes(17),
-                     random_int(), random_int(), random_int(), random_int(), sm_length, random_bytes(sm_length))
-            data = struct1.pack(*param)
-            self.logger.info(f"Starting fuzz {self.fuzz_num}")
-            try:
-                self.client.sendall(data)
-                self.logger.info(f"Fuzz {self.fuzz_num} send successfully")
-            except BrokenPipeError as e:
-                self.logger.error(f"Fuzz {self.fuzz_num} BrokenPipeError: {e}")
-                with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
-                    f.write(data)
-                self.connect()
-                self.client.sendall(data)
-            except Exception as e:
-                self.logger.error(f"Fuzz {self.fuzz_num} failed with error: {e}")
-                with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
-                    f.write(data)
-            finally:
-                self.fuzz_num += 1
-                time.sleep(interval)
+    def fuzz(self, count, loop, interval, command_name="bind_transmitter"):
+        if command_name != "bind_transceiver":
+            self.bind()
+        for i in range(loop):
+            for _ in range(count):
+                fuzz_data = {
+                    "bind_transceiver": fuzzer.fuzz_bind_transceiver(),
+                    "submit_sm": fuzzer.fuzz_submit_sm(),
+                    "enquire_link": fuzzer.fuzz_enquire_link(),
+                    "unbind": fuzzer.fuzz_unbind(),
+                    "query_sm": fuzzer.fuzz_query_sm(),
+                    "cancel_sm": fuzzer.fuzz_cancel_sm(),
+                    "replace_sm": fuzzer.fuzz_replace_sm(),
+                    "deliver_sm_resp": fuzzer.fuzz_deliver_sm_resp(),
+                }
+                data = fuzz_data[command_name]
+                self.logger.info(f"Starting fuzz {self.fuzz_num}")
+                try:
+                    self.client.sendall(data)
+                    self.logger.info(f"Fuzz {self.fuzz_num} send successfully")
+                except BrokenPipeError as e:
+                    self.logger.error(f"Fuzz {self.fuzz_num} BrokenPipeError: {e}")
+                    with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                        f.write(data)
+                    self.connect()
+                    self.bind()
+                    self.client.sendall(data)
+                except Exception as e:
+                    self.logger.error(f"Fuzz {self.fuzz_num} failed with error: {e}")
+                    with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                        f.write(data)
+                finally:
+                    self.fuzz_num += 1
+                    time.sleep(interval)

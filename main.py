@@ -24,4 +24,4 @@ if __name__ == '__main__':
     host = interfaces_ips.get(interface)
     client = SMPPClient(host)
     client.connect()
-    client.run(count, loop, interval)
+    client.fuzz(count, loop, interval)

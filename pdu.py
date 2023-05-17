@@ -72,6 +72,7 @@ class Param:
         self.size = size
         self.min = min
         self.max = max
+        self.len_field = len_field
 
 
 class BindTransmitterPDU(PDU):
@@ -96,7 +97,7 @@ class BindTransmitterPDU(PDU):
     def pack(self):
         data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
                                 self.system_id.encode() + b'\x00', self.password.encode() + b'\x00',
-                                self.system_type.encode(), self.interface_version, self.addr_ton ,self.addr_npi,
+                                self.system_type.encode(), self.interface_version, self.addr_ton, self.addr_npi,
                                 self.address_range)
         return data
 
@@ -193,12 +194,13 @@ class SubmitSMPDU(PDU):
         if not self.message_bytes:
             self.message_bytes = self.gen_message_bytes()
         self.sm_length = len(self.message_bytes)
-        grammar = f">LLLLcBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}sBBBccBBBBB{self.sm_length}s"
+        grammar = f">LLLL{len(self.service_type)}sBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}" + \
+                  f"sBBBccBBBBB{self.sm_length}s"
         super().__init__(grammar)
 
     def pack(self):
         data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.service_type, self.source_addr_ton, self.source_addr_npi,
+                                self.service_type.encode(), self.source_addr_ton, self.source_addr_npi,
                                 self.source_addr.encode() + b'\x00', self.dest_addr_ton, self.dest_addr_npi,
                                 self.destination_addr.encode() + b'\x00', self.esm_class, self.protocol_id,
                                 self.priority_flag, self.schedule_delivery_time, self.validity_period,
@@ -220,7 +222,7 @@ class SubmitSMRespPDU(PDU):
 class DeliverSMPDU(PDU):
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLLcBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}scBcccBcBcB{self.sm_length}s" \
+        grammar = f">LLLLcBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}scBcccBcBcB{self.sm_length}s"\
                   + f"{len(self.optional_params)}s"
         super().__init__(grammar)
         self.service_type = None
