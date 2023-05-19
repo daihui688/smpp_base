@@ -2,6 +2,7 @@ from faker import Faker
 import struct
 
 import command
+
 from utils import get_tag
 
 fake = Faker()
@@ -68,8 +69,7 @@ class SMPPFuzz:
         system_type = self.random_bytes(13)
         address_range = self.random_bytes(41)
 
-        body = system_id + b"\x00" + password + b"\x00" + system_type + self.random_byte + \
-               self.random_byte + self.random_byte + address_range
+        body = system_id + b"\x00" + password + b"\x00" + system_type + self.random_bytes(3) + address_range
         data = self.gen_data("bind_transceiver", body)
         return data
 
@@ -97,12 +97,11 @@ class SMPPFuzz:
         #     "sm_default_msg_id": random_int(),
         #     "message_bytes": random_bytes(255)
         # }
-        source_addr = self.random_bytes(21)
-        destination_addr = self.random_bytes(21)
+        source_addr = self.random_bytes(21) + b"\x00"
+        destination_addr = self.random_bytes(21) + b"\x00"
         sm_length = fake.random_int(0, 999)
-        param1 = b"\x00" + self.random_bytes(2) + source_addr + b"\x00" + self.random_bytes(2) + \
-                 destination_addr + b"\x00" + self.random_bytes(3) + b'\x00' + b'\x00' + \
-                 self.random_bytes(3) + b"\x00"
+        param1 = b"\x00" + self.random_bytes(2) + source_addr + self.random_bytes(2) + destination_addr + \
+                 self.random_bytes(3) + b'\x00' + b'\x00' + self.random_bytes(3) + b"\x00"
         if sm_length < 255:
             body = param1 + struct.pack(">B", sm_length) + self.random_bytes(sm_length)
         else:
@@ -124,9 +123,9 @@ class SMPPFuzz:
         #     'source_addr_npi': Param(type=int, size=1),
         #     'source_addr': Param(type=str, max=21),
         # }
-        message_id = str(fake.random_int(1, 100))
-        source_addr = self.random_bytes(21)
-        body = message_id.encode() + b'\x00' + self.random_bytes(2) + source_addr + b'\x00'
+        message_id = str(fake.random_int(1, 100)).encode() + b'\x00'
+        source_addr = self.random_bytes(21) + b'\x00'
+        body = message_id + self.random_bytes(2) + source_addr
         data = self.gen_data("query_sm", body)
         return data
 
@@ -141,11 +140,11 @@ class SMPPFuzz:
         #     'dest_addr_npi': Param(type=int, size=1),
         #     'destination_addr': Param(type=str, max=21),
         # }
-        message_id = str(fake.random_int(1, 100))
-        source_addr = self.random_bytes(21)
-        destination_addr = self.random_bytes(21)
-        body = b'\x00' + message_id.encode() + b'\x00' + self.random_bytes(2) + source_addr + b'\x00' + \
-               self.random_bytes(2) + destination_addr + b'\x00'
+        message_id = str(fake.random_int(1, 100)).encode() + b'\x00'
+        source_addr = self.random_bytes(21) + b'\x00'
+        destination_addr = self.random_bytes(21) + b'\x00'
+        body = b'\x00' + message_id + self.random_bytes(2) + source_addr + self.random_bytes(2) + \
+               destination_addr
         data = self.gen_data("cancel_sm", body)
         return data
 

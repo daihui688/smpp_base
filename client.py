@@ -30,24 +30,19 @@ class SMPPClient:
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
 
-    def connect(self, host="127.0.0.1", port_pool=(7777, 7778)):
+    def connect(self, host=config.SMPP_SERVER_HOST, port=config.SMPP_SERVER_PORT):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # 客户端绑定到self.host,0表示让系统自动选择一个可用的空闲端口
         self.client.bind((self.host, 0))
-        for port in port_pool:
-            try:
-                self.client.connect((host, port))
-            except Exception as e:
-                self.logger.error(f"连接到SMSC{host}:{port}失败,{e}")
-                if port == port_pool[-1]:
-                    self.logger.error("无可用SMSC服务器！")
-                continue
-            else:
-                self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
-                break
-        self.client_state = consts.SMPP_CLIENT_STATE_OPEN
-        t1 = threading.Thread(target=self.handle)
-        t1.start()
+        try:
+            self.client.connect((host, port))
+        except Exception as e:
+            self.logger.error(f"连接到SMSC{host}:{port}失败,{e}")
+        else:
+            self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
+            self.client_state = consts.SMPP_CLIENT_STATE_OPEN
+            t1 = threading.Thread(target=self.handle)
+            t1.start()
 
     def bind(self):
         self.bind_transceiver()
@@ -187,7 +182,7 @@ class SMPPClient:
 
     def submit_sm(self, message):
         body = {
-            "service_type": "CMT",
+            "service_type": b'\x00',
             "source_addr_ton": consts.SMPP_TON_INTL,
             "source_addr_npi": consts.SMPP_NPI_ISDN,
             "source_addr": config.SOURCE_ADDR,
@@ -336,7 +331,7 @@ class SMPPClient:
     def parse_unbind_resp(self, resp, command_name):
         pdu = self.parse_base_resp(resp, command_name)
         if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.SMPP_ESME_ROK:
-            print("解绑成功,", pdu)
+            self.logger.info(f"解绑成功,{pdu}")
             self.client_state = consts.STATE_SETTERS[command_name]
             self.disconnect()
 
@@ -383,7 +378,7 @@ class SMPPClient:
         if pdu.command_status == consts.SMPP_ESME_ROK:
             self.deliver_sm_resp(pdu.sequence_number)
 
-    def fuzz(self, count, loop, interval, command_name="bind_transmitter"):
+    def fuzz(self, count, loop, interval, command_name="submit_sm"):
         if command_name != "bind_transceiver":
             self.bind()
         for i in range(loop):
