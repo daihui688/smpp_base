@@ -30,6 +30,20 @@ class SMPPClient:
         handler.setFormatter(formatter)
         self.logger.addHandler(handler)
 
+        self.command_mapping = {
+                "bind_transceiver_resp": self.parse_bind_transceiver_resp,
+                "submit_sm_resp": self.parse_submit_sm_resp,
+                "deliver_sm": self.parse_deliver_sm,
+                "data_sm_resp": self.parse_data_sm_resp,
+                "query_sm_resp": self.parse_query_sm_resp,
+                "enquire_link_resp": self.parse_enquire_link_resp,
+                "cancel_sm_resp": self.parse_cancel_sm_resp,
+                "replace_sm_resp": self.parse_replace_sm_resp,
+                "unbind_resp": self.parse_unbind_resp,
+                "generic_nack": self.parse_generic_nack,
+                "alert_notification": self.parse_alert_notification
+            }
+
     def connect(self, host=config.SMPP_SERVER_HOST, port=config.SMPP_SERVER_PORT):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # 客户端绑定到self.host,0表示让系统自动选择一个可用的空闲端口
@@ -75,7 +89,7 @@ class SMPPClient:
                     self.replace_sm(self.last_message_id, "daihui666")
                 elif option == "1":
                     for i in range(count):
-                        msg = input("请输入消息(输入q退出):")
+                        msg = input("")
                         if contains_chinese(msg):
                             self.data_coding = consts.SMPP_ENCODING_ISO10646
                         if msg.strip().upper() == "Q":
@@ -100,28 +114,9 @@ class SMPPClient:
             resp = length + self.client.recv(command_length - 4)
             command_id = struct.unpack(">L", resp[4:8])[0]
             command_name = get_command_name(command_id)
-            if command_name == "bind_transceiver_resp":
-                self.parse_bind_transceiver_resp(resp, command_name)
-            elif command_name == "submit_sm_resp":
-                self.parse_submit_sm_resp(resp, command_name)
-            elif command_name == "deliver_sm":
-                self.parse_deliver_sm(resp, command_name)
-            elif command_name == "data_sm_resp":
-                self.parse_data_sm_resp(resp, command_name)
-            elif command_name == "query_sm_resp":
-                self.parse_query_sm_resp(resp, command_name)
-            elif command_name == "enquire_link_resp":
-                self.parse_enquire_link_resp(resp, command_name)
-            elif command_name == "cancel_sm_resp":
-                self.parse_cancel_sm_resp(resp, command_name)
-            elif command_name == "replace_sm_resp":
-                self.parse_replace_sm_resp(resp, command_name)
-            elif command_name == "unbind_resp":
-                self.parse_unbind_resp(resp, command_name)
-            elif command_name == "generic_nack":
-                self.parse_generic_nack(resp, command_name)
-            elif command_name == "alert_notification":
-                self.parse_alert_notification(resp)
+            if command_name in self.command_mapping:
+                # noinspection PyArgumentList
+                self.command_mapping.get(command_name)(resp, command_name)
             else:
                 self.logger.error("异常数据")
                 with open(f"./data/err_resp_data/{self.fuzz_num}", "wb") as f:
@@ -349,7 +344,7 @@ class SMPPClient:
         if pdu.sequence_number == self.sequence_number:
             print(command_name, pdu)
 
-    def parse_alert_notification(self, resp):
+    def parse_alert_notification(self, resp, command_name):
         sm_length = resp[56]
         # short_message = resp[57:57 + sm_length]
         optional_params = resp[57 + sm_length:]
@@ -359,7 +354,7 @@ class SMPPClient:
             "sm_length": sm_length,
             "optional_params": optional_params
         }
-        pdu = get_pdu("alert_notification")(**body)
+        pdu = get_pdu(command_name)(**body)
         resp_data = pdu.unpack(resp)
         pdu.command_length, pdu.command_id, pdu.command_status, pdu.sequence_number = resp_data[:4]
         pdu.optional_params = resp_data[-1]

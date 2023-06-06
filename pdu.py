@@ -91,13 +91,13 @@ class BindTransmitterPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.system_id) + 1}s{len(self.password) + 1}s{len(self.system_type)}sBBBc"
+        grammar = f">LLLL{len(self.system_id) + 1}s{len(self.password) + 1}s{len(self.system_type)+1}sBBBc"
         super().__init__(grammar)
 
     def pack(self):
         data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
                                 self.system_id.encode() + b'\x00', self.password.encode() + b'\x00',
-                                self.system_type.encode(), self.interface_version, self.addr_ton, self.addr_npi,
+                                self.system_type.encode()+ b'\x00', self.interface_version, self.addr_ton, self.addr_npi,
                                 self.address_range)
         return data
 

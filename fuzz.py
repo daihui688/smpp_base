@@ -3,7 +3,7 @@ import struct
 
 import command
 
-from utils import get_tag
+# from utils import get_tag
 
 fake = Faker()
 ascii_chars = ''.join(chr(i) for i in range(128))
