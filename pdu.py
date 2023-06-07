@@ -7,7 +7,6 @@ from utils import get_tag
 
 
 def get_pdu(command_name):
-    """生成PDU"""
     try:
         return {
             'bind_transmitter': BindTransmitterPDU,
@@ -38,7 +37,13 @@ def get_pdu(command_name):
     except KeyError:
         raise Exception('Command "%s" is not supported' % command_name)
 
-
+class Param:
+    def __init__(self, type, size=None, min=None, max=None, len_field=None):
+        self.type = type
+        self.size = size
+        self.min = min
+        self.max = max
+        self.len_field = len_field
 class PDU:
     def __init__(self, grammar=">LLLL"):
         self.struct = struct.Struct(grammar)
@@ -66,13 +71,7 @@ class PDU:
             f"command_status:'{consts.DESCRIPTIONS.get(self.command_status)}',sequence_number:{self.sequence_number}),"
 
 
-class Param:
-    def __init__(self, type, size=None, min=None, max=None, len_field=None):
-        self.type = type
-        self.size = size
-        self.min = min
-        self.max = max
-        self.len_field = len_field
+
 
 
 class BindTransmitterPDU(PDU):
@@ -160,33 +159,33 @@ class SubmitSMPDU(PDU):
         'short_message': Param(type=str, max=254, len_field='sm_length'),
 
         # Optional params
-        'user_message_reference': Param(type=int, size=2),
-        'source_port': Param(type=int, size=2),
-        'source_addr_subunit': Param(type=int, size=2),
-        'destination_port': Param(type=int, size=2),
-        'dest_addr_subunit': Param(type=int, size=1),
-        'sar_msg_ref_num': Param(type=int, size=2),
-        'sar_total_segments': Param(type=int, size=1),
-        'sar_segment_seqnum': Param(type=int, size=1),
-        'more_messages_to_send': Param(type=int, size=1),
-        'payload_type': Param(type=int, size=1),
-        'message_payload': Param(type=str, max=260),
-        'privacy_indicator': Param(type=int, size=1),
-        'callback_num': Param(type=str, min=4, max=19),
-        'callback_num_pres_ind': Param(type=int, size=1),
-        'source_subaddress': Param(type=str, min=2, max=23),
-        'dest_subaddress': Param(type=str, min=2, max=23),
-        'user_response_code': Param(type=int, size=1),
-        'display_time': Param(type=int, size=1),
-        'sms_signal': Param(type=int, size=2),
-        'ms_validity': Param(type=int, size=1),
-        'ms_msg_wait_facilities': Param(type=int, size=1),
-        'number_of_messages': Param(type=int, size=1),
-        'alert_on_message_delivery': Param(type=str),
-        'language_indicator': Param(type=int, size=1),
-        'its_reply_type': Param(type=int, size=1),
-        'its_session_info': Param(type=int, size=2),
-        'ussd_service_op': Param(type=int, size=1),
+        # 'user_message_reference': Param(type=int, size=2),
+        # 'source_port': Param(type=int, size=2),
+        # 'source_addr_subunit': Param(type=int, size=2),
+        # 'destination_port': Param(type=int, size=2),
+        # 'dest_addr_subunit': Param(type=int, size=1),
+        # 'sar_msg_ref_num': Param(type=int, size=2),
+        # 'sar_total_segments': Param(type=int, size=1),
+        # 'sar_segment_seqnum': Param(type=int, size=1),
+        # 'more_messages_to_send': Param(type=int, size=1),
+        # 'payload_type': Param(type=int, size=1),
+        # 'message_payload': Param(type=str, max=260),
+        # 'privacy_indicator': Param(type=int, size=1),
+        # 'callback_num': Param(type=str, min=4, max=19),
+        # 'callback_num_pres_ind': Param(type=int, size=1),
+        # 'source_subaddress': Param(type=str, min=2, max=23),
+        # 'dest_subaddress': Param(type=str, min=2, max=23),
+        # 'user_response_code': Param(type=int, size=1),
+        # 'display_time': Param(type=int, size=1),
+        # 'sms_signal': Param(type=int, size=2),
+        # 'ms_validity': Param(type=int, size=1),
+        # 'ms_msg_wait_facilities': Param(type=int, size=1),
+        # 'number_of_messages': Param(type=int, size=1),
+        # 'alert_on_message_delivery': Param(type=str),
+        # 'language_indicator': Param(type=int, size=1),
+        # 'its_reply_type': Param(type=int, size=1),
+        # 'its_session_info': Param(type=int, size=2),
+        # 'ussd_service_op': Param(type=int, size=1),
     }
 
     def __init__(self, **kwargs):
@@ -246,6 +245,9 @@ class DeliverSMPDU(PDU):
 
 
 class DeliverSMRespPDU(PDU):
+    body = {
+        "message_id": Param(type=str,size=1)
+    }
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
         grammar = f">LLLLc"
@@ -259,6 +261,18 @@ class DeliverSMRespPDU(PDU):
 
 
 class DataSMPDU(PDU):
+    body = {
+        "service_type": Param(type=str,size=1),
+        "source_addr_ton": Param(type=int,size=1),
+        "source_addr_npi": Param(type=int,size=1),
+        "source_addr": Param(type=str, max=21),
+        "dest_addr_ton": Param(type=int,size=1),
+        "dest_addr_npi": Param(type=int,size=1),
+        "destination_addr": Param(type=str, max=21),
+        "esm_class": Param(type=str,size=1),
+        "registered_delivery": Param(type=int,size=1),
+        "data_coding": Param(type=int,size=1),
+    }
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
         message_bytes = self.gen_message_bytes()
@@ -356,8 +370,8 @@ class ReplaceSMPDU(PDU):
         'source_addr_ton': Param(type=int, size=1),
         'source_addr_npi': Param(type=int, size=1),
         'source_addr': Param(type=str, max=21),
-        'schedule_delivery_time': Param(type=int, max=17),
-        'validity_period': Param(type=int, max=17),
+        'schedule_delivery_time': Param(type=int, size=8,max=17),
+        'validity_period': Param(type=int, size=8,max=17),
         'registered_delivery': Param(type=int, size=1),
         'sm_default_msg_id': Param(type=int, size=1),
         'sm_length': Param(type=int, size=1),
@@ -410,7 +424,7 @@ class EnquireLinkRespPDU(PDU):
 
 
 class AlertNotificationPDU(PDU):
-    params = {
+    body = {
         'source_addr_ton': Param(type=int, size=1),
         'source_addr_npi': Param(type=int, size=1),
         'source_addr': Param(type=str, max=21),

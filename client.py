@@ -4,6 +4,7 @@ import struct
 import threading
 import time
 
+import command
 import config
 import consts
 from command import get_command_id, get_command_name
@@ -55,10 +56,12 @@ class SMPPClient:
         else:
             self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
             self.client_state = consts.SMPP_CLIENT_STATE_OPEN
-            t1 = threading.Thread(target=self.handle)
+            t1 = threading.Thread(target=self.handle,daemon=True)
             t1.start()
 
     def bind(self):
+        if self.client_state > 1:
+            return
         self.bind_transceiver()
         time.sleep(0.1)
 
@@ -373,37 +376,32 @@ class SMPPClient:
         if pdu.command_status == consts.SMPP_ESME_ROK:
             self.deliver_sm_resp(pdu.sequence_number)
 
-    def fuzz(self, count, loop, interval, command_name="submit_sm"):
-        if command_name != "bind_transceiver":
-            self.bind()
-        for i in range(loop):
-            for _ in range(count):
-                fuzz_data = {
-                    "bind_transceiver": fuzzer.fuzz_bind_transceiver(),
-                    "submit_sm": fuzzer.fuzz_submit_sm(),
-                    "enquire_link": fuzzer.fuzz_enquire_link(),
-                    "unbind": fuzzer.fuzz_unbind(),
-                    "query_sm": fuzzer.fuzz_query_sm(),
-                    "cancel_sm": fuzzer.fuzz_cancel_sm(),
-                    "replace_sm": fuzzer.fuzz_replace_sm(),
-                    "deliver_sm_resp": fuzzer.fuzz_deliver_sm_resp(),
-                }
-                data = fuzz_data[command_name]
-                self.logger.info(f"Starting fuzz {self.fuzz_num}")
-                try:
-                    self.client.sendall(data)
-                    self.logger.info(f"Fuzz {self.fuzz_num} send successfully")
-                except BrokenPipeError as e:
-                    self.logger.error(f"Fuzz {self.fuzz_num} BrokenPipeError: {e}")
-                    with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
-                        f.write(data)
-                    self.connect()
-                    self.bind()
-                    self.client.sendall(data)
-                except Exception as e:
-                    self.logger.error(f"Fuzz {self.fuzz_num} failed with error: {e}")
-                    with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
-                        f.write(data)
-                finally:
-                    self.fuzz_num += 1
-                    time.sleep(interval)
+    def fuzz(self, count, loop, interval):
+        for command_name in command.command_ids:
+            if command_name in {"data_sm"}:
+                continue
+            if "resp" in command_name and command_name != "deliver_sm_resp":
+                continue
+            if command_name != "bind_transceiver" and self.client_state == 1:
+                self.bind()
+            for i in range(loop):
+                for _ in range(count):
+                    data = fuzzer.fuzz_data(command_name)
+                    self.logger.info(f"Starting fuzz {self.fuzz_num}")
+                    try:
+                        self.client.sendall(data)
+                        self.logger.info(f"Fuzz {self.fuzz_num} send successfully")
+                    except BrokenPipeError as e:
+                        self.logger.error(f"Fuzz {self.fuzz_num} BrokenPipeError: {e}")
+                        with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                            f.write(data)
+                        self.connect()
+                        self.bind()
+                        self.client.sendall(data)
+                    except Exception as e:
+                        self.logger.error(f"Fuzz {self.fuzz_num} failed with error: {e}")
+                        with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                            f.write(data)
+                    finally:
+                        self.fuzz_num += 1
+                        time.sleep(interval)
