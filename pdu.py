@@ -433,7 +433,7 @@ class AlertNotificationPDU(PDU):
         'esme_addr': Param(type=str, max=21),
 
         # Optional params
-        'ms_availability_status': Param(type=int, size=1),
+        # 'ms_availability_status': Param(type=int, size=1),
     }
 
     def __init__(self, **kwargs):

@@ -9,7 +9,7 @@ def parse_terminal_params():
     parser.add_argument("-i", "--interface", default="lo", type=str, help="网络接口")
     parser.add_argument("-c", "--count", default=1, type=int, help="发送数量")
     parser.add_argument("-l", "--loop", default=1, type=int, help="循环次数")
-    parser.add_argument("-t", "--interval", default=0.1, type=float, help="间隔时间")
+    parser.add_argument("-t", "--interval", default=0.5, type=float, help="间隔时间")
 
     args = parser.parse_args()
     print(args)

@@ -377,17 +377,13 @@ class SMPPClient:
             self.deliver_sm_resp(pdu.sequence_number)
 
     def fuzz(self, count, loop, interval):
-        for command_name in command.command_ids:
-            if command_name in {"data_sm"}:
-                continue
-            if "resp" in command_name and command_name != "deliver_sm_resp":
-                continue
-            if command_name != "bind_transceiver" and self.client_state == 1:
+        for command_name in config.FUZZ_COMMAND:
+            if command_name[:4] != "bind" and self.client_state == 1:
                 self.bind()
             for i in range(loop):
                 for _ in range(count):
                     data = fuzzer.fuzz_data(command_name)
-                    self.logger.info(f"Starting fuzz {self.fuzz_num}")
+                    self.logger.info(f"Starting Fuzz {self.fuzz_num}")
                     try:
                         self.client.sendall(data)
                         self.logger.info(f"Fuzz {self.fuzz_num} send successfully")

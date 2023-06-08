@@ -6,5 +6,7 @@ ESME_ADDR = "8618279230916"
 FUZZ_NUM = 1
 SYSTEM_ID = "login"
 PASSWORD = "12345"
+FUZZ_COMMAND = ["bind_transceiver","submit_sm","deliver_sm_resp","query_sm",
+                "cancel_sm","replace_sm","unbind","enquire_link"]
 
 
