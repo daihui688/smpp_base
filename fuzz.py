@@ -1,6 +1,9 @@
 from faker import Faker
+import struct
+
+import command
 import consts
-from pdu import *
+from utils import get_pdu
 
 fake = Faker()
 ascii_chars = ''.join(chr(i) for i in range(128))

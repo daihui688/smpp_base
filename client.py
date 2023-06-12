@@ -30,18 +30,19 @@ class SMPPClient:
         self.logger.addHandler(handler)
 
         self.command_mapping = {
-                "bind_transceiver_resp": self.parse_bind_transceiver_resp,
-                "submit_sm_resp": self.parse_submit_sm_resp,
-                "deliver_sm": self.parse_deliver_sm,
-                "data_sm_resp": self.parse_data_sm_resp,
-                "query_sm_resp": self.parse_query_sm_resp,
-                "enquire_link_resp": self.parse_enquire_link_resp,
-                "cancel_sm_resp": self.parse_cancel_sm_resp,
-                "replace_sm_resp": self.parse_replace_sm_resp,
-                "unbind_resp": self.parse_unbind_resp,
-                "generic_nack": self.parse_generic_nack,
-                "alert_notification": self.parse_alert_notification
-            }
+            "bind_transceiver_resp": self.parse_bind_transceiver_resp,
+            "submit_sm_resp": self.parse_submit_sm_resp,
+            "parse_submit_multi_resp": self.parse_submit_multi_resp,
+            "deliver_sm": self.parse_deliver_sm,
+            "data_sm_resp": self.parse_data_sm_resp,
+            "query_sm_resp": self.parse_query_sm_resp,
+            "enquire_link_resp": self.parse_enquire_link_resp,
+            "cancel_sm_resp": self.parse_cancel_sm_resp,
+            "replace_sm_resp": self.parse_replace_sm_resp,
+            "unbind_resp": self.parse_unbind_resp,
+            "generic_nack": self.parse_generic_nack,
+            "alert_notification": self.parse_alert_notification
+        }
 
     def connect(self, host=config.SMPP_SERVER_HOST, port=config.SMPP_SERVER_PORT):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -54,7 +55,7 @@ class SMPPClient:
         else:
             self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
             self.client_state = consts.SMPP_CLIENT_STATE_OPEN
-            t1 = threading.Thread(target=self.handle,daemon=True)
+            t1 = threading.Thread(target=self.handle, daemon=True)
             t1.start()
 
     def bind(self):
@@ -83,11 +84,12 @@ class SMPPClient:
             while True:
                 option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
                 if option == "0":
-                    self.query_sm(self.last_message_id)
-                    time.sleep(interval)
-                    self.cancel_sm(self.last_message_id)
-                    time.sleep(interval)
-                    self.replace_sm(self.last_message_id, "daihui666")
+                    # self.query_sm(self.last_message_id)
+                    # time.sleep(interval)
+                    # self.cancel_sm(self.last_message_id)
+                    # time.sleep(interval)
+                    # self.replace_sm(self.last_message_id, "daihui666")
+                    self.outbind()
                 elif option == "1":
                     for i in range(count):
                         msg = input("")
@@ -96,6 +98,7 @@ class SMPPClient:
                         if msg.strip().upper() == "Q":
                             break
                         self.submit_sm(msg)
+                        # self.submit_multi(msg)
                         # self.data_sm(msg)
                         time.sleep(interval)
                 elif option == "q":
@@ -194,7 +197,8 @@ class SMPPClient:
             "replace_if_present_flag": 0,
             "data_coding": self.data_coding,
             "sm_default_msg_id": 0,
-            "short_message": message
+            "short_message": message,
+            "user_message_reference":100
         }
         self.base_send_sm("submit_sm", **body)
 
@@ -206,6 +210,31 @@ class SMPPClient:
         if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.SMPP_ESME_ROK:
             self.logger.info(f"发送消息成功,{pdu}")
             self.last_message_id = pdu.message_id.decode()
+
+    def submit_multi(self, message):
+        body = {
+            "service_type": b'\x00',
+            "source_addr_ton": consts.SMPP_TON_INTL,
+            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            "source_addr": config.SOURCE_ADDR,
+            'number_of_dests': 1,
+            'dest_addresses': "+8618279230916",
+            "esm_class": 0,
+            "protocol_id": consts.SMPP_PID_DEFAULT,
+            "priority_flag": 0,
+            "schedule_delivery_time": consts.NULL_BYTE,
+            "validity_period": consts.NULL_BYTE,
+            "registered_delivery": consts.SMPP_SMSC_DELIVERY_RECEIPT_BOTH,
+            "replace_if_present_flag": 0,
+            "data_coding": self.data_coding,
+            "sm_default_msg_id": 0,
+            "short_message": message
+        }
+        self.base_send_sm("submit_multi", **body)
+
+    def parse_submit_multi_resp(self, resp, command_name):
+        if self.sequence_number:
+            print(command_name, resp)
 
     def data_sm(self, message):
         body = {
@@ -320,6 +349,13 @@ class SMPPClient:
         pdu = self.parse_base_resp(resp, command_name)
         if pdu.sequence_number == self.sequence_number:
             self.logger.info(f"{command_name}:{pdu}")
+
+    def outbind(self):
+        body = {
+            'system_id': config.SYSTEM_ID,
+            'password': config.PASSWORD,
+        }
+        self.base_send_sm("outbind", **body)
 
     def unbind(self):
         self.base_send_sm("unbind")

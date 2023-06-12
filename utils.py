@@ -1,6 +1,5 @@
 import netifaces
 
-import consts
 from pdu import *
 
 interfaces_ips = {}
@@ -27,11 +26,14 @@ def get_pdu(command_name):
             'cancel_sm_resp': CancelSMRespPDU,
             'replace_sm': ReplaceSMPDU,
             'replace_sm_resp': ReplaceSMRespPDU,
+            'outbind': OutbindPDU,
             'unbind': UnbindPDU,
             'unbind_resp': UnbindRespPDU,
             'enquire_link': EnquireLinkPDU,
             'enquire_link_resp': EnquireLinkRespPDU,
             'alert_notification': AlertNotificationPDU,
+            'submit_multi': SubmitMultiPDU,
+            'submit_multi_resp': SubmitMultiRespPDU
         }[command_name]
     except KeyError:
         raise Exception('Command "%s" is not supported' % command_name)
@@ -50,8 +52,7 @@ def get_optional_param_name(num):
             return name
 
 
-def get_tag(name):
-    return consts.OPTIONAL_PARAMS.get(name)
+
 
 
 def contains_chinese(message):
