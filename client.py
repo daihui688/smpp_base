@@ -4,13 +4,11 @@ import struct
 import threading
 import time
 
-import command
 import config
 import consts
 from command import get_command_id, get_command_name
 from fuzz import fuzzer
-from pdu import get_pdu
-from utils import contains_chinese
+from utils import get_pdu, contains_chinese
 
 
 class SMPPClient:

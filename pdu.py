@@ -1,41 +1,10 @@
 import struct
 import gsm0338
 
+import config
 import consts
-import command
 from utils import get_tag
 
-
-def get_pdu(command_name):
-    try:
-        return {
-            'bind_transmitter': BindTransmitterPDU,
-            'bind_transmitter_resp': BindTransmitterRespPDU,
-            'bind_receiver': BindReceiverPDU,
-            'bind_receiver_resp': BindReceiverRespPDU,
-            'bind_transceiver': BindTransceiverPDU,
-            'bind_transceiver_resp': BindTransceiverRespPDU,
-            'data_sm': DataSMPDU,
-            'data_sm_resp': DataSMRespPDU,
-            'generic_nack': GenericNAckPDU,
-            'submit_sm': SubmitSMPDU,
-            'submit_sm_resp': SubmitSMRespPDU,
-            'deliver_sm': DeliverSMPDU,
-            'deliver_sm_resp': DeliverSMRespPDU,
-            'query_sm': QuerySMPDU,
-            'query_sm_resp': QuerySMRespPDU,
-            'cancel_sm': CancelSMPDU,
-            'cancel_sm_resp': CancelSMRespPDU,
-            'replace_sm': ReplaceSMPDU,
-            'replace_sm_resp': ReplaceSMRespPDU,
-            'unbind': UnbindPDU,
-            'unbind_resp': UnbindRespPDU,
-            'enquire_link': EnquireLinkPDU,
-            'enquire_link_resp': EnquireLinkRespPDU,
-            'alert_notification': AlertNotificationPDU,
-        }[command_name]
-    except KeyError:
-        raise Exception('Command "%s" is not supported' % command_name)
 
 class Param:
     def __init__(self, type, size=None, min=None, max=None, len_field=None):
@@ -44,17 +13,48 @@ class Param:
         self.min = min
         self.max = max
         self.len_field = len_field
+
+
 class PDU:
-    def __init__(self, grammar=">LLLL"):
+    header = {
+        "command_length": Param(type=int, size=4),
+        "command_id": Param(type=int, size=4),
+        "command_status": Param(type=int, size=4),
+        "sequence_number": Param(type=int, size=4),
+    }
+
+    def __init__(self, grammar=">4L"):
         self.struct = struct.Struct(grammar)
         self.command_length = self.struct.size
+        self.pack_param = []
 
     def _set_vals(self, d):
         for k, v in d.items():
             setattr(self, k, v)
 
+    def gen_pack_param(self):
+        for k, v in self.header.items():
+            param = getattr(self, k)
+            self.pack_param.append(param)
+        try:
+            self.body
+        except AttributeError:
+            return
+        for k, v in self.body.items():
+            param = getattr(self, k)
+            if v.type == str:
+                value = getattr(self, k)
+                if type(value) == str:
+                    param = value.encode()
+                    if k in config.ADD_NULL_PARAMS:
+                        param = value.encode() + b'\x00'
+                    if k == "short_message":
+                        param = self.message_bytes
+            self.pack_param.append(param)
+
     def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number)
+        self.gen_pack_param()
+        data = self.struct.pack(*self.pack_param)
         return data
 
     def unpack(self, resp):
@@ -67,11 +67,22 @@ class PDU:
             return gsm0338.Codec().encode(self.short_message)[0]
 
     def __str__(self):
-        return f"PDU(command_length:{self.command_length},operation:{command.get_command_name(self.command_id)}," + \
-            f"command_status:'{consts.DESCRIPTIONS.get(self.command_status)}',sequence_number:{self.sequence_number}),"
+        s = 'PDU('
+        for k in self.header:
+            s += f"{k}:{getattr(self, k)},"
+        try:
+            self.body
+        except AttributeError:
+            pass
+        for k in self.body:
+            s += f"{k}:{getattr(self, k)},"
+        return s + ')'
 
 
-
+class HeaderPDU(PDU):
+    def __init__(self, **kwargs):
+        self._set_vals(kwargs)
+        super().__init__()
 
 
 class BindTransmitterPDU(PDU):
@@ -90,21 +101,14 @@ class BindTransmitterPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.system_id) + 1}s{len(self.password) + 1}s{len(self.system_type)+1}sBBBc"
+        grammar = f">4L{len(self.system_id) + 1}s{len(self.password) + 1}s{len(self.system_type) + 1}s3Bc"
         super().__init__(grammar)
-
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.system_id.encode() + b'\x00', self.password.encode() + b'\x00',
-                                self.system_type.encode()+ b'\x00', self.interface_version, self.addr_ton, self.addr_npi,
-                                self.address_range)
-        return data
 
 
 class BindTransmitterRespPDU(PDU):
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.system_id)}sc"
+        grammar = f">4L{len(self.system_id)}sc"
         super().__init__(grammar)
 
     def __str__(self):
@@ -192,35 +196,31 @@ class SubmitSMPDU(PDU):
         self._set_vals(kwargs)
         self.message_bytes = self.gen_message_bytes()
         self.sm_length = len(self.message_bytes)
-        grammar = f">LLLL{len(self.service_type)}sBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}" + \
-                  f"sBBBccBBBBB{self.sm_length}s"
+        grammar = f">4L{len(self.service_type)}s2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}" + \
+                  f"s3B2c5B{self.sm_length}s"
         super().__init__(grammar)
-
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.service_type, self.source_addr_ton, self.source_addr_npi,
-                                self.source_addr.encode() + b'\x00', self.dest_addr_ton, self.dest_addr_npi,
-                                self.destination_addr.encode() + b'\x00', self.esm_class, self.protocol_id,
-                                self.priority_flag, self.schedule_delivery_time, self.validity_period,
-                                self.registered_delivery, self.replace_if_present_flag,
-                                self.data_coding, self.sm_default_msg_id, self.sm_length, self.message_bytes)
-        return data
 
 
 class SubmitSMRespPDU(PDU):
+    body = {
+        "message_id": Param(type=str)
+    }
+
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.message_id)}sc"
+        grammar = f">4L{len(self.message_id)}sc"
         super().__init__(grammar)
-
-    def __str__(self):
-        return super().__str__() + f"message_id:{self.message_id})"
 
 
 class DeliverSMPDU(PDU):
+    body = {
+        "source_addr": Param(type=str),
+        "destination_addr": Param(type=str),
+    }
+
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLLBBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}scBcccBcBcB{self.sm_length}s"\
+        grammar = f">4L3B{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}scB3cBcBcB{self.sm_length}s" \
                   + f"{len(self.optional_params)}s"
         super().__init__(grammar)
         self.service_type = None
@@ -240,55 +240,46 @@ class DeliverSMPDU(PDU):
         self.short_message = None
         self.message_bytes = None
 
-    def __str__(self):
-        return super().__str__()[:-1] + f",source_addr={self.source_addr},destination_addr={self.destination_addr}"
-
 
 class DeliverSMRespPDU(PDU):
     body = {
-        "message_id": Param(type=str,size=1)
+        "message_id": Param(type=str, size=1)
     }
+
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLLc"
+        grammar = f">4Lc"
         super().__init__(grammar)
         self.message_id = consts.NULL_BYTE
-
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.message_id)
-        return data
 
 
 class DataSMPDU(PDU):
     body = {
-        "service_type": Param(type=str,size=1),
-        "source_addr_ton": Param(type=int,size=1),
-        "source_addr_npi": Param(type=int,size=1),
+        "service_type": Param(type=str, size=1),
+        "source_addr_ton": Param(type=int, size=1),
+        "source_addr_npi": Param(type=int, size=1),
         "source_addr": Param(type=str, max=21),
-        "dest_addr_ton": Param(type=int,size=1),
-        "dest_addr_npi": Param(type=int,size=1),
+        "dest_addr_ton": Param(type=int, size=1),
+        "dest_addr_npi": Param(type=int, size=1),
         "destination_addr": Param(type=str, max=21),
-        "esm_class": Param(type=str,size=1),
-        "registered_delivery": Param(type=int,size=1),
-        "data_coding": Param(type=int,size=1),
+        "esm_class": Param(type=str, size=1),
+        "registered_delivery": Param(type=int, size=1),
+        "data_coding": Param(type=int, size=1),
     }
+
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
         message_bytes = self.gen_message_bytes()
         self.message_payload_tag = get_tag("message_payload")
         self.message_payload = message_bytes + b'\x1b\x3c\x54\x52\x49\x41\x4c\x1b\x3e'
         self.payload_length = len(self.message_payload)
-        grammar = f">LLLLcBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}scBBHH{self.payload_length}s"
+        grammar = f">4Lc2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}sc2B2H{self.payload_length}s"
         super().__init__(grammar)
 
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.service_type, self.source_addr_ton, self.source_addr_npi,
-                                self.source_addr.encode() + b'\x00', self.dest_addr_ton, self.dest_addr_npi,
-                                self.destination_addr.encode() + b'\x00', self.esm_class, self.registered_delivery,
-                                self.data_coding, self.message_payload_tag, self.payload_length, self.message_payload)
-        return data
+    def gen_pack_param(self):
+        super().gen_pack_param()
+        self.pack_param.pop()
+        self.pack_param.extend([self.message_payload_tag, self.payload_length, self.message_payload])
 
 
 class DataSMRespPDU(SubmitSMRespPDU):
@@ -305,14 +296,8 @@ class QuerySMPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.message_id) + 1}sBB{len(self.source_addr) + 1}s"
+        grammar = f">4L{len(self.message_id) + 1}s2B{len(self.source_addr) + 1}s"
         super().__init__(grammar)
-
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.message_id.encode() + b'\x00', self.source_addr_ton, self.source_addr_npi,
-                                self.source_addr.encode() + b'\x00')
-        return data
 
 
 class QuerySMRespPDU(PDU):
@@ -325,12 +310,8 @@ class QuerySMRespPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLL{len(self.message_id)}sBBB"
+        grammar = f">4L{len(self.message_id)}s3B"
         super().__init__(grammar)
-
-    def __str__(self):
-        return super().__str__() + f"message_id:{self.message_id}),final_date:{self.final_date}," + \
-            f"message_state:{self.message_state},error_code:{self.error_code}"
 
 
 class CancelSMPDU(PDU):
@@ -347,21 +328,12 @@ class CancelSMPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLLc{len(self.message_id) + 1}sBB{len(self.source_addr) + 1}sBB{len(self.destination_addr) + 1}s"
+        grammar = f">4Lc{len(self.message_id) + 1}s2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}s"
         super().__init__(grammar)
 
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.service_type, self.message_id.encode() + b'\x00',
-                                self.source_addr_ton, self.source_addr_npi, self.source_addr.encode() + b'\x00',
-                                self.dest_addr_ton, self.dest_addr_npi, self.destination_addr.encode() + b'\x00')
-        return data
 
-
-class CancelSMRespPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
+class CancelSMRespPDU(HeaderPDU):
+    pass
 
 
 class ReplaceSMPDU(PDU):
@@ -370,8 +342,8 @@ class ReplaceSMPDU(PDU):
         'source_addr_ton': Param(type=int, size=1),
         'source_addr_npi': Param(type=int, size=1),
         'source_addr': Param(type=str, max=21),
-        'schedule_delivery_time': Param(type=int, size=8,max=17),
-        'validity_period': Param(type=int, size=8,max=17),
+        'schedule_delivery_time': Param(type=int, size=8, max=17),
+        'validity_period': Param(type=int, size=8, max=17),
         'registered_delivery': Param(type=int, size=1),
         'sm_default_msg_id': Param(type=int, size=1),
         'sm_length': Param(type=int, size=1),
@@ -382,45 +354,28 @@ class ReplaceSMPDU(PDU):
         self._set_vals(kwargs)
         self.message_bytes = self.gen_message_bytes()
         self.sm_length = len(self.message_bytes)
-        grammar = f">LLLL{len(self.message_id) + 1}sBB{len(self.source_addr) + 1}sBBBBB{self.sm_length}s"
+        grammar = f">4L{len(self.message_id) + 1}s2B{len(self.source_addr) + 1}s5B{self.sm_length}s"
         super().__init__(grammar)
 
-    def pack(self):
-        data = self.struct.pack(self.command_length, self.command_id, self.command_status, self.sequence_number,
-                                self.message_id.encode() + b'\x00', self.source_addr_ton, self.source_addr_npi,
-                                self.source_addr.encode() + b'\x00', self.schedule_delivery_time, self.validity_period,
-                                self.registered_delivery, self.sm_default_msg_id, self.sm_length, self.message_bytes)
-        return data
+
+class ReplaceSMRespPDU(HeaderPDU):
+    pass
 
 
-class ReplaceSMRespPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
+class UnbindPDU(HeaderPDU):
+    pass
 
 
-class UnbindPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
+class UnbindRespPDU(HeaderPDU):
+    pass
 
 
-class UnbindRespPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
+class EnquireLinkPDU(HeaderPDU):
+    pass
 
 
-class EnquireLinkPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
-
-
-class EnquireLinkRespPDU(PDU):
-    def __init__(self, **kwargs):
-        self._set_vals(kwargs)
-        super().__init__()
+class EnquireLinkRespPDU(HeaderPDU):
+    pass
 
 
 class AlertNotificationPDU(PDU):
@@ -438,12 +393,9 @@ class AlertNotificationPDU(PDU):
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
-        grammar = f">LLLLBB{len(self.source_addr) + 1}sBB{len(self.esme_addr) + 1}s{len(self.optional_params)}s"
+        grammar = f">4L2B{len(self.source_addr) + 1}s2B{len(self.esme_addr) + 1}s{len(self.optional_params)}s"
         super().__init__(grammar)
         self.source_addr_ton = None
         self.source_addr_npi = None
         self.esme_addr_ton = None
         self.esme_addr_npi = None
-
-    def __str__(self):
-        return super().__str__() + f"source_addr={self.source_addr},esme_addr={self.esme_addr})"
