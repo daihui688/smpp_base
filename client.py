@@ -16,8 +16,8 @@ class SMPPClient:
         self.host = host
         self.client = None
         self.sequence_number = 0
-        self.client_state = consts.SMPP_CLIENT_STATE_CLOSED
-        self.data_coding = consts.SMPP_ENCODING_DEFAULT
+        self.client_state = consts.CLIENT_STATE_CLOSED
+        self.data_coding = consts.ENCODING_DEFAULT
         self.last_message_id = None
         self.fuzz_num = 0
 
@@ -54,7 +54,7 @@ class SMPPClient:
             self.logger.error(f"连接到SMSC{host}:{port}失败,{e}")
         else:
             self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
-            self.client_state = consts.SMPP_CLIENT_STATE_OPEN
+            self.client_state = consts.CLIENT_STATE_OPEN
             t1 = threading.Thread(target=self.handle, daemon=True)
             t1.start()
 
@@ -81,8 +81,9 @@ class SMPPClient:
         t2 = threading.Thread(target=self.enquire)
         t2.start()
         if 2 <= self.client_state <= 4:
-            while True:
-                option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
+            for i in range(loop):
+                # option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
+                option = "1"
                 if option == "0":
                     # self.query_sm(self.last_message_id)
                     # time.sleep(interval)
@@ -92,7 +93,8 @@ class SMPPClient:
                     self.outbind()
                 elif option == "1":
                     for i in range(count):
-                        msg = input("")
+                        # msg = input(">>>")
+                        msg = "daihui666"
                         if contains_chinese(msg):
                             self.data_coding = consts.SMPP_ENCODING_ISO10646
                         if msg.strip().upper() == "Q":
@@ -114,6 +116,8 @@ class SMPPClient:
             if not self.client:
                 break
             length = self.client.recv(4)
+            if len(length) == 0:
+                continue
             command_length = struct.unpack(">L", length)[0]
             resp = length + self.client.recv(command_length - 4)
             command_id = struct.unpack(">L", resp[4:8])[0]
@@ -131,8 +135,8 @@ class SMPPClient:
             if self.client is None:
                 break
             try:
+                time.sleep(60)
                 self.enquire_link()
-                time.sleep(30)
             except AttributeError as e:
                 self.logger.error(e)
 
@@ -163,9 +167,9 @@ class SMPPClient:
             'system_id': config.SYSTEM_ID,
             'password': config.PASSWORD,
             'system_type': "sms",
-            'interface_version': consts.SMPP_VERSION_34,
-            'addr_ton': consts.SMPP_TON_INTL,
-            'addr_npi': consts.SMPP_NPI_ISDN,
+            'interface_version': consts.VERSION_34,
+            'addr_ton': consts.TON_INTL,
+            'addr_npi': consts.NPI_ISDN,
             'address_range': consts.NULL_BYTE,
         }
         self.base_send_sm("bind_transceiver", **body)
@@ -175,30 +179,42 @@ class SMPPClient:
         pdu = get_pdu(command_name)(system_id=system_id)
         resp_data = pdu.unpack(resp)
         pdu.command_length, pdu.command_id, pdu.command_status, pdu.sequence_number, pdu.system_id = resp_data[:-1]
-        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.SMPP_ESME_ROK:
+        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.ESME_ROK:
             self.logger.info(f"与SMSC绑定成功,{pdu}")
             self.client_state = consts.STATE_SETTERS[command_name]
 
     def submit_sm(self, message):
         body = {
             "service_type": b'\x00',
-            "source_addr_ton": consts.SMPP_TON_INTL,
-            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            "source_addr_ton": consts.TON_INTL,
+            "source_addr_npi": consts.NPI_ISDN,
             "source_addr": config.SOURCE_ADDR,
-            "dest_addr_ton": consts.SMPP_TON_INTL,
-            "dest_addr_npi": consts.SMPP_NPI_ISDN,
+            "dest_addr_ton": consts.TON_INTL,
+            "dest_addr_npi": consts.NPI_ISDN,
             "destination_addr": "+8618279230916",
             "esm_class": 0,
-            "protocol_id": consts.SMPP_PID_DEFAULT,
+            "protocol_id": consts.PID_DEFAULT,
             "priority_flag": 0,
             "schedule_delivery_time": consts.NULL_BYTE,
             "validity_period": consts.NULL_BYTE,
-            "registered_delivery": consts.SMPP_SMSC_DELIVERY_RECEIPT_BOTH,
+            "registered_delivery": consts.SMSC_DELIVERY_RECEIPT_BOTH,
             "replace_if_present_flag": 0,
             "data_coding": self.data_coding,
             "sm_default_msg_id": 0,
             "short_message": message,
-            "user_message_reference":100
+
+            # Optional params
+            'user_message_reference':100,
+            'source_port':8888,
+            'source_addr_subunit':2,
+            'destination_port': 7777,
+            'dest_addr_subunit': 1,
+            # 'sar_msg_ref_num': 1,
+            # 'sar_total_segments': 1,
+            # 'sar_segment_seqnum': 1,
+            'more_messages_to_send':b'\x01',
+            'payload_type':1,
+            'message_payload':message,
         }
         self.base_send_sm("submit_sm", **body)
 
@@ -207,7 +223,7 @@ class SMPPClient:
         pdu = get_pdu(command_name)(message_id=message_id)
         resp_data = pdu.unpack(resp)
         pdu.command_length, pdu.command_id, pdu.command_status, pdu.sequence_number, pdu.message_id = resp_data[:-1]
-        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.SMPP_ESME_ROK:
+        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.ESME_ROK:
             self.logger.info(f"发送消息成功,{pdu}")
             self.last_message_id = pdu.message_id.decode()
 
@@ -239,14 +255,14 @@ class SMPPClient:
     def data_sm(self, message):
         body = {
             "service_type": consts.NULL_BYTE,
-            "source_addr_ton": consts.SMPP_TON_INTL,
-            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            "source_addr_ton": consts.TON_INTL,
+            "source_addr_npi": consts.NPI_ISDN,
             "source_addr": config.SOURCE_ADDR,
-            "dest_addr_ton": consts.SMPP_TON_INTL,
-            "dest_addr_npi": consts.SMPP_NPI_ISDN,
+            "dest_addr_ton": consts.TON_INTL,
+            "dest_addr_npi": consts.NPI_ISDN,
             "destination_addr": config.DESTINATION_ADDR,
             "esm_class": consts.NULL_BYTE,
-            "registered_delivery": consts.SMPP_SMSC_DELIVERY_RECEIPT_BOTH,
+            "registered_delivery": consts.SMSC_DELIVERY_RECEIPT_BOTH,
             "data_coding": self.data_coding,
             "short_message": message
         }
@@ -284,7 +300,7 @@ class SMPPClient:
             payload = pdu.optional_params[4:4 + optional_param_length]
             data = payload[94:-9]
             print(data.decode())
-        if pdu.command_status == consts.SMPP_ESME_ROK:
+        if pdu.command_status == consts.ESME_ROK:
             self.deliver_sm_resp(pdu.sequence_number)
 
     def deliver_sm_resp(self, sequence_number):
@@ -373,8 +389,8 @@ class SMPPClient:
     def parse_enquire_link_resp(self, resp, command_name):
         pdu = self.parse_base_resp(resp, command_name)
         if pdu.sequence_number == self.sequence_number:
-            if pdu.command_status != consts.SMPP_ESME_ROK:
-                self.client_state = consts.SMPP_CLIENT_STATE_OPEN
+            if pdu.command_status != consts.ESME_ROK:
+                self.client_state = consts.CLIENT_STATE_OPEN
 
     def parse_generic_nack(self, resp, command_name):
         pdu = self.parse_base_resp(resp, command_name)

@@ -6,7 +6,7 @@ import consts
 
 
 class Param:
-    def __init__(self, type, size=None, min=None, max=None, len_field=None):
+    def __init__(self, type=None, size=None, min=None, max=None, len_field=None):
         self.type = type
         self.size = size
         self.min = min
@@ -21,13 +21,19 @@ class TLV:
     body = {
         "tag": Param(type=int, size=2),
         "length": Param(type=int, size=2),
-        "value": Param(type=str, len_field="length")
+        "value": Param(len_field="length")
     }
 
-    def __init__(self, tag, length=None, value=None):
+    def __init__(self, tag=None, type=None, length=1, value=None, max=None):
         self.tag = tag
+        if type is None:
+            type = int
+        self.type = type
         self.length = length
         self.value = value
+        self.max = max
+        if self.max:
+            self.length = None
 
     def get_tag(self):
         return consts.OPTIONAL_PARAMS.get(self.tag)
@@ -51,46 +57,56 @@ class PDU:
     def _set_vals(self, d):
         for k, v in d.items():
             setattr(self, k, v)
-    def _have_body(self):
-        try:
-            self.body
-        except AttributeError:
-            return False
-        else:
-            return True
+
+
+
     def _add_grammer(self):
-        if not self._have_body():
+        if not getattr(self,'body',None):
             return
-        for k,v in self.body.items():
-            if v.type == TLV:
-                tag = getattr(self, k)
-                # TODO
-                self.grammar += f'3H'
+        for k, v in self.body.items():
+            tlv = v.type
+            if type(tlv) == TLV:
+                s = '2H'
+                if tlv.type == int:
+                    if tlv.length == 1:
+                        s += 'B'
+                    elif tlv.length == 2:
+                        s += 'H'
+                    elif tlv.length == 4:
+                        s += 'I'
+                elif tlv.type == str:
+                    tlv_len = tlv.length if tlv.length else None
+                    if k == 'message_payload':
+                        tlv_len=len(self.message_bytes)
+                    elif tlv.max:
+                        tlv_len = len(getattr(self, k))
+                    s += f'{tlv_len}s'
+                self.grammar += s
 
     def gen_pack_param(self):
         for k, v in self.header.items():
             param = getattr(self, k)
             self.pack_param.append(param)
-        if not self._have_body():
+        if not getattr(self,'body',None):
             return
         for k, v in self.body.items():
             param = getattr(self, k)
-            if v.type == str:
-                value = getattr(self, k)
-                if type(value) == str:
-                    param = value.encode()
-                    if k in config.ADD_NULL_PARAMS:
-                        param = value.encode() + b'\x00'
-                    if k == "short_message":
-                        param = self.message_bytes
-            elif v.type == TLV:
+            tlv = v.type
+            if v.type == str and type(param) == str:
+                param = param.encode()
+                if k in config.ADD_NULL_PARAMS:
+                    param += b'\x00'
+                if k == "short_message":
+                    param = self.message_bytes
+            elif type(tlv) == TLV:
                 self.pack_param.append(TLV(k).get_tag())
-                # TODO
-                # param = param.encode()
-                self.pack_param.append(2)
+                if k == 'message_payload':
+                    param = self.message_bytes
+                elif tlv.type == str and type(param) == str:
+                    param = param.encode()
+                tlv_len = tlv.length if tlv.length else len(param)
+                self.pack_param.append(tlv_len)
             self.pack_param.append(param)
-
-
 
     def pack(self):
         self.gen_pack_param()
@@ -101,22 +117,20 @@ class PDU:
         return self.struct.unpack(resp)
 
     def gen_message_bytes(self):
-        if self.data_coding == consts.SMPP_ENCODING_ISO10646:
-            return self.short_message.encode("utf-16be")
-        elif self.data_coding == consts.SMPP_ENCODING_DEFAULT:
-            return gsm0338.Codec().encode(self.short_message)[0]
+        msg = self.short_message if not getattr(self,'message_payload',None) else self.message_payload
+        if self.data_coding == consts.ENCODING_ISO10646:
+            return msg.encode("utf-16be")
+        elif self.data_coding == consts.ENCODING_DEFAULT:
+            return gsm0338.Codec().encode(msg)[0]
 
     def __str__(self):
         s = 'PDU('
         for k in self.header:
             s += f"{k}:{getattr(self, k)},"
-        try:
-            self.body
-        except AttributeError:
-            pass
-        for k in self.body:
-            s += f"{k}:{getattr(self, k)},"
-        return s + ')'
+        if getattr(self,'body',None):
+            for k in self.body:
+                s += f"{k}:{getattr(self, k)},"
+        return s[:-1] + ')'
 
 
 class HeaderPDU(PDU):
@@ -147,7 +161,9 @@ class BindTransmitterPDU(PDU):
 
 class BindTransmitterRespPDU(PDU):
     body = {
-        "system_id": Param(type=str)
+        "system_id": Param(type=str),
+        # Optional params
+        # "sc_interface_version": Param(type=TLV())
     }
 
     def __init__(self, **kwargs):
@@ -178,7 +194,7 @@ class BindTransceiverRespPDU(BindTransmitterRespPDU):
     pass
 
 
-class GenericNAckPDU(PDU):
+class GenericNAckPDU(HeaderPDU):
     pass
 
 
@@ -204,42 +220,44 @@ class SubmitSMPDU(PDU):
         'short_message': Param(type=str, max=254, len_field='sm_length'),
 
         # Optional params
-        'user_message_reference': Param(type=TLV),
-        # 'source_port': Param(type=TLV),
-        # 'source_addr_subunit': Param(type=TLV),
-        # 'destination_port': Param(type=TLV),
-        # 'dest_addr_subunit': Param(type=TLV),
-        # 'sar_msg_ref_num': Param(type=TLV),
-        # 'sar_total_segments': Param(type=TLV),
-        # 'sar_segment_seqnum': Param(type=TLV),
-        # 'more_messages_to_send': Param(type=TLV),
-        # 'payload_type': Param(type=TLV),
-        # 'message_payload': Param(type=TLV),
-        # 'privacy_indicator': Param(type=TLV),
-        # 'callback_num': Param(type=TLV),
-        # 'callback_num_pres_ind': Param(type=TLV),
-        # 'callback_num_pres_atag': Param(type=TLV),
-        # 'source_subaddress': Param(type=TLV),
-        # 'dest_subaddress': Param(type=TLV),
-        # 'user_response_code': Param(type=TLV),
-        # 'display_time': Param(type=TLV),
-        # 'sms_signal': Param(type=TLV),
-        # 'ms_validity': Param(type=TLV),
-        # 'ms_msg_wait_facilities': Param(type=TLV),
-        # 'number_of_messages': Param(type=TLV),
-        # 'alert_on_message_delivery': Param(type=TLV),
-        # 'language_indicator': Param(type=TLV),
-        # 'its_reply_type': Param(type=TLV),
-        # 'its_session_info': Param(type=TLV),
-        # 'ussd_service_op': Param(type=TLV),
+        'user_message_reference': Param(type=TLV(length=2)),
+        'source_port': Param(type=TLV(length=2)),
+        'source_addr_subunit': Param(type=TLV()),
+        'destination_port': Param(type=TLV(length=2)),
+        'dest_addr_subunit': Param(type=TLV()),
+        # 'sar_msg_ref_num': Param(type=TLV()),
+        # 'sar_total_segments': Param(type=TLV()),
+        # 'sar_segment_seqnum': Param(type=TLV()),
+        'more_messages_to_send': Param(type=TLV(type=str)),
+        'payload_type': Param(type=TLV()),
+        'message_payload': Param(type=TLV(type=str,max=64*1024)),
+        # 'privacy_indicator': Param(type=TLV()),
+        # 'callback_num': Param(type=TLV(type=str)),
+        # 'callback_num_pres_ind': Param(type=TLV(type=str)),
+        # 'callback_num_pres_atag': Param(type=TLV(type=str)),
+        # 'source_subaddress': Param(type=TLV(type=str,max=23)),
+        # 'dest_subaddress': Param(type=TLV(type=str,max=23)),
+        # 'user_response_code': Param(type=TLV()),
+        # 'display_time': Param(type=TLV()),
+        # 'sms_signal': Param(type=TLV(type=str)),
+        # 'ms_validity': Param(type=TLV()),
+        # 'ms_msg_wait_facilities': Param(type=TLV(type=bytes)),
+        # 'number_of_messages': Param(type=TLV(type=str)),
+        # 'alert_on_message_delivery': Param(type=TLV(type=str,length=0)),
+        # 'language_indicator': Param(type=TLV()),
+        # 'its_reply_type': Param(type=TLV(type=str)),
+        # 'its_session_info': Param(type=TLV(type=str)),
+        # 'ussd_service_op': Param(type=TLV(type=str)),
     }
 
     def __init__(self, **kwargs):
         self._set_vals(kwargs)
         self.message_bytes = self.gen_message_bytes()
         self.sm_length = len(self.message_bytes)
-        grammar = f">4L{len(self.service_type)}s2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}" + \
-                  f"s3B2c5B{self.sm_length}s"
+        if getattr(self,'message_payload',None):
+            self.sm_length = 0
+        grammar = f">4L{len(self.service_type)}s2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}s" + \
+                  f"3B2c5B{self.sm_length}s"
         super().__init__(grammar)
 
 
@@ -275,28 +293,36 @@ class SubmitMultiPDU(PDU):
         'short_message': Param(type=str, max=254, len_field='sm_length'),
 
         # # Optional params
-        # 'user_message_reference': Param(type=TLV),
-        # 'source_port': Param(type=TLV),
-        # 'source_addr_subunit': Param(type=TLV),
-        # 'destination_port': Param(type=TLV),
-        # 'dest_addr_subunit': Param(type=TLV),
-        # 'sar_msg_ref_num': Param(type=TLV),
-        # 'sar_total_segments': Param(type=TLV),
-        # 'sar_segment_seqnum': Param(type=TLV),
-        # 'payload_type': Param(type=TLV),
-        # 'message_payload': Param(type=TLV),
-        # 'privacy_indicator': Param(type=TLV),
-        # 'callback_num': Param(type=TLV),
-        # 'callback_num_pres_ind': Param(type=TLV),
-        # 'callback_num_atag': Param(type=TLV),
-        # 'source_subaddress': Param(type=TLV),
-        # 'dest_subaddress': Param(type=TLV),
-        # 'display_time': Param(type=TLV),
-        # 'sms_signal': Param(type=TLV),
-        # 'ms_validity': Param(type=TLV),
-        # 'ms_msg_wait_facilities': Param(type=TLV),
-        # 'alert_on_message_delivery': Param(type=TLV),
-        # 'language_indicator': Param(type=TLV),
+        'user_message_reference': Param(type=TLV(length=2)),
+        'source_port': Param(type=TLV()),
+        'source_addr_subunit': Param(type=TLV()),
+        'destination_port': Param(type=TLV()),
+        'dest_addr_subunit': Param(type=TLV()),
+        'sar_msg_ref_num': Param(type=TLV()),
+        'sar_total_segments': Param(type=TLV()),
+        'sar_segment_seqnum': Param(type=TLV()),
+        'payload_type': Param(type=TLV()),
+        'message_payload': Param(type=TLV(type=str)),
+        'privacy_indicator': Param(type=TLV()),
+        'callback_num': Param(type=TLV(type=str)),
+        'callback_num_pres_ind': Param(type=TLV(type=str)),
+        'callback_num_atag': Param(type=TLV(type=str)),
+        'source_subaddress': Param(type=TLV(type=str, max=23)),
+        'dest_subaddress': Param(type=TLV(type=str, max=23)),
+        'display_time': Param(type=TLV()),
+        'sms_signal': Param(type=TLV(type=str)),
+        'ms_validity': Param(type=TLV()),
+        'ms_msg_wait_facilities': Param(type=TLV(type=bytes)),
+        'alert_on_message_delivery': Param(type=TLV(type=str, length=0)),
+        'language_indicator': Param(type=TLV()),
+        # # 目的地址定义
+        # 'dest_flag': Param(type=int,size=1),
+        # # SME_dest_address
+        # 'dest_addr_ton': Param(type=int,size=1),
+        # 'dest_addr_npi': Param(type=int,size=1),
+        # 'destination_addr': Param(type=str,size=21),
+        # # 分布显示定义
+        # 'dl_name': Param(type=str,size=21)
     }
 
     def __init__(self, **kwargs):
@@ -314,6 +340,7 @@ class SubmitMultiRespPDU(PDU):
         "no_unsuccess": Param(type=int, size=1),
         "unsuccess_smes": Param(type=str),
         # Optional params
+        # 递送失败
         # 'dest_addr_ton': Param(type=int, size=1),
         # 'dest_addr_npi': Param(type=int, size=1),
         # 'destination_addr': Param(type=str, max=21),
@@ -329,8 +356,44 @@ class SubmitMultiRespPDU(PDU):
 
 class DeliverSMPDU(PDU):
     body = {
-        "source_addr": Param(type=str),
-        "destination_addr": Param(type=str),
+        'service_type': Param(type=str, max=6),
+        'source_addr_ton': Param(type=int, size=1),
+        'source_addr_npi': Param(type=int, size=1),
+        'source_addr': Param(type=str, max=21),
+        'dest_addr_ton': Param(type=int, size=1),
+        'dest_addr_npi': Param(type=int, size=1),
+        'destination_addr': Param(type=str, max=21),
+        'esm_class': Param(type=int, size=1),
+        'protocol_id': Param(type=int, size=1),
+        'priority_flag': Param(type=int, size=1),
+        'schedule_delivery_time': Param(type=str, max=17),
+        'validity_period': Param(type=str, max=17),
+        'registered_delivery': Param(type=int, size=1),
+        'replace_if_present_flag': Param(type=int, size=1),
+        'data_coding': Param(type=int, size=1),
+        'sm_default_msg_id': Param(type=int, size=1),
+        'sm_length': Param(type=int, size=1),
+        'short_message': Param(type=str, max=254, len_field='sm_length'),
+
+        # Optional params
+        # 'user_message_reference': Param(type=TLV(length=2)),
+        # 'source_port': Param(type=TLV()),
+        # 'destination_port': Param(type=TLV()),
+        # 'sar_msg_ref_num': Param(type=TLV()),
+        # 'sar_total_segments': Param(type=TLV()),
+        # 'sar_segment_seqnum': Param(type=TLV()),
+        # 'user_response_code': Param(type=TLV()),
+        # 'privacy_indicator': Param(type=TLV()),
+        # 'payload_type': Param(type=TLV()),
+        # 'message_payload': Param(type=TLV(type=str)),
+        # 'callback_num': Param(type=TLV(type=str)),
+        # 'source_subaddress': Param(type=TLV(type=str,max=23)),
+        # 'dest_subaddress': Param(type=TLV(type=str,max=23)),
+        # 'language_indicator': Param(type=TLV()),
+        # 'its_session_info': Param(type=TLV(type=str)),
+        # 'network_error_code': Param(type=TLV(type=str,length=3)),
+        # 'message_state': Param(type=TLV(type=str)),
+        # 'receipted_message_id': Param(type=TLV(type=str,max=65)),
     }
 
     def __init__(self, **kwargs):
@@ -380,6 +443,46 @@ class DataSMPDU(PDU):
         "esm_class": Param(type=str, size=1),
         "registered_delivery": Param(type=int, size=1),
         "data_coding": Param(type=int, size=1),
+
+        # # Optional params
+        'source_port': Param(type=TLV()),
+        'source_addr_subunit': Param(type=TLV()),
+        'source_network_type': Param(type=TLV()),
+        'source_bearer_type': Param(type=TLV()),
+        'source_telematics_id': Param(type=TLV()),
+        'destination_port': Param(type=TLV()),
+        'dest_addr_subunit': Param(type=TLV()),
+        'dest_network_type': Param(type=TLV()),
+        'dest_bearer_type': Param(type=TLV()),
+        'dest_telematics_id': Param(type=TLV(length=2)),
+        'sar_msg_ref_num': Param(type=TLV()),
+        'sar_total_segments': Param(type=TLV()),
+        'sar_segment_seqnum': Param(type=TLV()),
+        'more_messages_to_send': Param(type=TLV(type=str)),
+        'qos_time_to_live': Param(type=TLV(length=4)),
+        'payload_type': Param(type=TLV()),
+        'message_payload': Param(type=TLV(type=str)),
+        'set_dpf': Param(type=TLV()),
+        'receipted_message_id': Param(type=TLV(type=str, max=65)),
+        'message_state': Param(type=TLV(type=str)),
+        'network_error_code': Param(type=TLV(type=str, length=3)),
+        'user_message_reference': Param(type=TLV(length=2)),
+        'privacy_indicator': Param(type=TLV()),
+        'callback_num': Param(type=TLV(type=str)),
+        'callback_num_pres_ind': Param(type=TLV(type=str)),
+        'callback_num_pres_atag': Param(type=TLV(type=str)),
+        'source_subaddress': Param(type=TLV(type=str, max=23)),
+        'dest_subaddress': Param(type=TLV(type=str, max=23)),
+        'user_response_code': Param(type=TLV()),
+        'display_time': Param(type=TLV()),
+        'sms_signal': Param(type=TLV(type=str)),
+        'ms_validity': Param(type=TLV()),
+        'ms_msg_wait_facilities': Param(type=TLV(type=bytes)),
+        'number_of_messages': Param(type=TLV(type=str)),
+        'alert_on_message_delivery': Param(type=TLV(type=str, length=0)),
+        'language_indicator': Param(type=TLV()),
+        'its_reply_type': Param(type=TLV(type=str)),
+        'its_session_info': Param(type=TLV(type=str)),
     }
 
     def __init__(self, **kwargs):
@@ -391,14 +494,22 @@ class DataSMPDU(PDU):
         grammar = f">4Lc2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}sc2B2H{self.payload_length}s"
         super().__init__(grammar)
 
-    def gen_pack_param(self):
-        super().gen_pack_param()
-        self.pack_param.pop()
-        self.pack_param.extend([self.message_payload_tag, self.payload_length, self.message_payload])
 
+class DataSMRespPDU(PDU):
+    body = {
+        "message_id": Param(type=str),
 
-class DataSMRespPDU(SubmitSMRespPDU):
-    pass
+        # Optional params
+        'delivery_failure_reason': Param(type=TLV(type=str)),
+        'networf_error_code': Param(type=TLV()),
+        'additional_status_info_text': Param(type=TLV(type=str, max=256)),
+        'dpf_result': Param(type=TLV()),
+    }
+
+    def __init__(self, **kwargs):
+        self._set_vals(kwargs)
+        grammar = f">4L{len(self.message_id)}sc"
+        super().__init__(grammar)
 
 
 class QuerySMPDU(PDU):
@@ -419,7 +530,7 @@ class QuerySMRespPDU(PDU):
     params = {
         'message_id': Param(type=str, max=65),
         'final_date': Param(type=str, max=17),
-        'message_state': Param(type=int, size=1),
+        'message_state': Param(type=TLV(type=str)),
         'error_code': Param(type=int, size=1),
     }
 
@@ -503,7 +614,7 @@ class AlertNotificationPDU(PDU):
         'esme_addr': Param(type=str, max=21),
 
         # Optional params
-        'ms_availability_status': Param(type=TLV)
+        'ms_availability_status': Param(type=TLV())
     }
 
     def __init__(self, **kwargs):
