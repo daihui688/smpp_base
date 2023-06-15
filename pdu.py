@@ -3,6 +3,7 @@ import gsm0338
 
 import config
 import consts
+from command import get_command_name
 
 
 class Param:
@@ -50,6 +51,7 @@ class PDU:
     def __init__(self, grammar=">4L"):
         self.grammar = grammar
         self._add_grammer()
+        # print(self.grammar)
         self.struct = struct.Struct(self.grammar)
         self.command_length = self.struct.size
         self.pack_param = []
@@ -58,10 +60,8 @@ class PDU:
         for k, v in d.items():
             setattr(self, k, v)
 
-
-
     def _add_grammer(self):
-        if not getattr(self,'body',None):
+        if not getattr(self, 'body', None):
             return
         for k, v in self.body.items():
             tlv = v.type
@@ -77,17 +77,18 @@ class PDU:
                 elif tlv.type == str:
                     tlv_len = tlv.length if tlv.length else None
                     if k == 'message_payload':
-                        tlv_len=len(self.message_bytes)
+                        tlv_len = len(self.message_bytes)
                     elif tlv.max:
                         tlv_len = len(getattr(self, k))
-                    s += f'{tlv_len}s'
+                    if tlv_len is not None:
+                        s += f'{tlv_len}s'
                 self.grammar += s
 
     def gen_pack_param(self):
         for k, v in self.header.items():
             param = getattr(self, k)
             self.pack_param.append(param)
-        if not getattr(self,'body',None):
+        if not getattr(self, 'body', None):
             return
         for k, v in self.body.items():
             param = getattr(self, k)
@@ -106,18 +107,22 @@ class PDU:
                     param = param.encode()
                 tlv_len = tlv.length if tlv.length else len(param)
                 self.pack_param.append(tlv_len)
-            self.pack_param.append(param)
+            if param != b'':
+                self.pack_param.append(param)
 
     def pack(self):
         self.gen_pack_param()
+        # print(self.grammar)
+        # print(self.pack_param)
         data = self.struct.pack(*self.pack_param)
         return data
 
     def unpack(self, resp):
+        # print(len(resp), resp)
         return self.struct.unpack(resp)
 
     def gen_message_bytes(self):
-        msg = self.short_message if not getattr(self,'message_payload',None) else self.message_payload
+        msg = self.short_message if not getattr(self, 'message_payload', None) else self.message_payload
         if self.data_coding == consts.ENCODING_ISO10646:
             return msg.encode("utf-16be")
         elif self.data_coding == consts.ENCODING_DEFAULT:
@@ -126,8 +131,11 @@ class PDU:
     def __str__(self):
         s = 'PDU('
         for k in self.header:
-            s += f"{k}:{getattr(self, k)},"
-        if getattr(self,'body',None):
+            v = getattr(self, k)
+            if k == 'command_id':
+                v = get_command_name(v)
+            s += f"{k}:{v},"
+        if getattr(self, 'body', None):
             for k in self.body:
                 s += f"{k}:{getattr(self, k)},"
         return s[:-1] + ')'
@@ -221,32 +229,32 @@ class SubmitSMPDU(PDU):
 
         # Optional params
         'user_message_reference': Param(type=TLV(length=2)),
-        'source_port': Param(type=TLV(length=2)),
-        'source_addr_subunit': Param(type=TLV()),
-        'destination_port': Param(type=TLV(length=2)),
-        'dest_addr_subunit': Param(type=TLV()),
+        # 'source_port': Param(type=TLV(length=2)),
+        # 'source_addr_subunit': Param(type=TLV()),
+        # 'destination_port': Param(type=TLV(length=2)),
+        # 'dest_addr_subunit': Param(type=TLV()),
         # 'sar_msg_ref_num': Param(type=TLV()),
         # 'sar_total_segments': Param(type=TLV()),
         # 'sar_segment_seqnum': Param(type=TLV()),
-        'more_messages_to_send': Param(type=TLV(type=str)),
-        'payload_type': Param(type=TLV()),
-        'message_payload': Param(type=TLV(type=str,max=64*1024)),
+        # 'more_messages_to_send': Param(type=TLV(type=str)),
+        # 'payload_type': Param(type=TLV()),
+        'message_payload': Param(type=TLV(type=str, max=64 * 1024)),
         # 'privacy_indicator': Param(type=TLV()),
         # 'callback_num': Param(type=TLV(type=str)),
         # 'callback_num_pres_ind': Param(type=TLV(type=str)),
-        # 'callback_num_pres_atag': Param(type=TLV(type=str)),
-        # 'source_subaddress': Param(type=TLV(type=str,max=23)),
-        # 'dest_subaddress': Param(type=TLV(type=str,max=23)),
+        # 'callback_num_atag': Param(type=TLV(type=str)),
+        # 'source_subaddress': Param(type=TLV(type=str, max=23)),
+        # 'dest_subaddress': Param(type=TLV(type=str, max=23)),
         # 'user_response_code': Param(type=TLV()),
         # 'display_time': Param(type=TLV()),
-        # 'sms_signal': Param(type=TLV(type=str)),
+        # 'sms_signal': Param(type=TLV(type=str, length=2)),
         # 'ms_validity': Param(type=TLV()),
-        # 'ms_msg_wait_facilities': Param(type=TLV(type=bytes)),
+        # 'ms_msg_wait_facilities': Param(type=TLV(type=str)),
         # 'number_of_messages': Param(type=TLV(type=str)),
-        # 'alert_on_message_delivery': Param(type=TLV(type=str,length=0)),
+        # 'alert_on_message_delivery': Param(type=TLV(type=str, length=0)),
         # 'language_indicator': Param(type=TLV()),
         # 'its_reply_type': Param(type=TLV(type=str)),
-        # 'its_session_info': Param(type=TLV(type=str)),
+        # 'its_session_info': Param(type=TLV(type=str, length=2)),
         # 'ussd_service_op': Param(type=TLV(type=str)),
     }
 
@@ -254,7 +262,7 @@ class SubmitSMPDU(PDU):
         self._set_vals(kwargs)
         self.message_bytes = self.gen_message_bytes()
         self.sm_length = len(self.message_bytes)
-        if getattr(self,'message_payload',None):
+        if getattr(self, 'message_payload', None):
             self.sm_length = 0
         grammar = f">4L{len(self.service_type)}s2B{len(self.source_addr) + 1}s2B{len(self.destination_addr) + 1}s" + \
                   f"3B2c5B{self.sm_length}s"

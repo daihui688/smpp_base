@@ -62,7 +62,7 @@ class SMPPClient:
         if self.client_state > 1:
             return
         self.bind_transceiver()
-        time.sleep(0.1)
+        # time.sleep(1)
 
     def disconnect(self):
         if self.client:
@@ -82,19 +82,19 @@ class SMPPClient:
         t2.start()
         if 2 <= self.client_state <= 4:
             for i in range(loop):
-                # option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
-                option = "1"
+                option = input("请输入你要执行的操作编号(0.测试,1.发送消息):")
+                # option = "0"
                 if option == "0":
-                    # self.query_sm(self.last_message_id)
-                    # time.sleep(interval)
-                    # self.cancel_sm(self.last_message_id)
-                    # time.sleep(interval)
-                    # self.replace_sm(self.last_message_id, "daihui666")
-                    self.outbind()
+                    self.query_sm(self.last_message_id)
+                    time.sleep(interval)
+                    self.cancel_sm(self.last_message_id)
+                    time.sleep(interval)
+                    self.replace_sm(self.last_message_id, "daihui666")
+                    # self.outbind()
                 elif option == "1":
                     for i in range(count):
-                        # msg = input(">>>")
-                        msg = "daihui666"
+                        msg = input(">>>")
+                        # msg = "daihui666"
                         if contains_chinese(msg):
                             self.data_coding = consts.SMPP_ENCODING_ISO10646
                         if msg.strip().upper() == "Q":
@@ -135,7 +135,7 @@ class SMPPClient:
             if self.client is None:
                 break
             try:
-                time.sleep(60)
+                time.sleep(10)
                 self.enquire_link()
             except AttributeError as e:
                 self.logger.error(e)
@@ -205,16 +205,33 @@ class SMPPClient:
 
             # Optional params
             'user_message_reference':100,
-            'source_port':8888,
-            'source_addr_subunit':2,
-            'destination_port': 7777,
-            'dest_addr_subunit': 1,
-            # 'sar_msg_ref_num': 1,
-            # 'sar_total_segments': 1,
-            # 'sar_segment_seqnum': 1,
-            'more_messages_to_send':b'\x01',
-            'payload_type':1,
+            # 'source_port':8888,
+            # 'source_addr_subunit':2,
+            # 'destination_port': 7777,
+            # 'dest_addr_subunit': 1,
+            # 'sar_msg_ref_num': 0,
+            # 'sar_total_segments': 0,
+            # 'sar_segment_seqnum': 0,
+            # 'more_messages_to_send':b'\x01',
+            # 'payload_type':1,
             'message_payload':message,
+            # 'privacy_indicator':0,
+            # 'callback_num':b'\x00',
+            # 'callback_num_pres_ind': b'\x00',
+            # 'callback_num_atag': b'\x00',
+            # 'source_subaddress':'127.0.0.1',
+            # 'dest_subaddress':'10.1.2.43',
+            # 'user_response_code': 0,
+            # 'display_time': 0,
+            # 'sms_signal': b'\x01\x00',
+            # 'ms_validity': 0,
+            # 'ms_msg_wait_facilities': b'\x00',
+            # 'number_of_messages': b'\x01',
+            # 'alert_on_message_delivery': b'',
+            # 'language_indicator': 0,
+            # 'its_reply_type': b'\x00',
+            # 'its_session_info': b'\x00\x00',
+            # 'ussd_service_op': b'\x00',
         }
         self.base_send_sm("submit_sm", **body)
 
@@ -313,8 +330,8 @@ class SMPPClient:
     def query_sm(self, message_id):
         body = {
             'message_id': message_id,
-            'source_addr_ton': consts.SMPP_TON_INTL,
-            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            'source_addr_ton': consts.TON_INTL,
+            "source_addr_npi": consts.NPI_ISDN,
             'source_addr': config.SOURCE_ADDR,
         }
         self.base_send_sm("query_sm", **body)
@@ -332,11 +349,11 @@ class SMPPClient:
         body = {
             "service_type": consts.NULL_BYTE,
             'message_id': message_id,
-            'source_addr_ton': consts.SMPP_TON_INTL,
-            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            'source_addr_ton': consts.TON_INTL,
+            "source_addr_npi": consts.NPI_ISDN,
             'source_addr': config.SOURCE_ADDR,
-            "dest_addr_ton": consts.SMPP_TON_INTL,
-            "dest_addr_npi": consts.SMPP_NPI_ISDN,
+            "dest_addr_ton": consts.TON_INTL,
+            "dest_addr_npi": consts.NPI_ISDN,
             "destination_addr": config.DESTINATION_ADDR,
         }
         self.base_send_sm("cancel_sm", **body)
