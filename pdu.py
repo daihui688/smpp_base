@@ -68,12 +68,7 @@ class PDU:
             if type(tlv) == TLV:
                 s = '2H'
                 if tlv.type == int:
-                    if tlv.length == 1:
-                        s += 'B'
-                    elif tlv.length == 2:
-                        s += 'H'
-                    elif tlv.length == 4:
-                        s += 'I'
+                    s += consts.INT_PACK_FORMATS[tlv.length]
                 elif tlv.type == str:
                     tlv_len = tlv.length if tlv.length else None
                     if k == 'message_payload':

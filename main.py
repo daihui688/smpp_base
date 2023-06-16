@@ -7,9 +7,9 @@ from utils import get_interfaces_and_ips
 def parse_terminal_params():
     parser = argparse.ArgumentParser(description="smpp协议参数")
     parser.add_argument("-i", "--interface", default="ens33", type=str, help="网络接口")
-    parser.add_argument("-c", "--count", default=100, type=int, help="发送数量")
-    parser.add_argument("-l", "--loop", default=100, type=int, help="循环次数")
-    parser.add_argument("-t", "--interval", default=0, type=float, help="间隔时间")
+    parser.add_argument("-c", "--count", default=1, type=int, help="发送数量")
+    parser.add_argument("-l", "--loop", default=1, type=int, help="循环次数")
+    parser.add_argument("-t", "--interval", default=0.1, type=float, help="间隔时间")
 
     args = parser.parse_args()
     print(args)
@@ -22,5 +22,5 @@ if __name__ == '__main__':
     host = interfaces_ips.get(interface)
     client = SMPPClient(host)
     client.connect()
-    # client.run(count, loop, interval)
-    client.fuzz(count, loop, interval)
+    client.run(count, loop, interval)
+    # client.fuzz(count, loop, interval)

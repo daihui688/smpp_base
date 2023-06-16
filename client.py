@@ -3,12 +3,13 @@ import socket
 import struct
 import threading
 import time
+import os
 
 import config
 import consts
 from command import get_command_id, get_command_name
 from fuzz import fuzzer
-from utils import get_pdu, contains_chinese
+from utils import get_pdu, contains_chinese, create_dir
 
 
 class SMPPClient:
@@ -51,9 +52,9 @@ class SMPPClient:
         try:
             self.client.connect((host, port))
         except Exception as e:
-            self.logger.error(f"连接到SMSC{host}:{port}失败,{e}")
+            self.logger.error(f"连接到{host}:{port}失败,{e}")
         else:
-            self.logger.info(f"{self.client.getsockname()}连接到SMSC{host}:{port}")
+            self.logger.info(f"{self.client.getsockname()}连接到{host}:{port}")
             self.client_state = consts.CLIENT_STATE_OPEN
             t1 = threading.Thread(target=self.handle, daemon=True)
             t1.start()
@@ -62,13 +63,13 @@ class SMPPClient:
         if self.client_state > 1:
             return
         self.bind_transceiver()
-        # time.sleep(1)
+        time.sleep(0.1)
 
     def disconnect(self):
         if self.client:
             self.logger.warning(f"ESME{self.client.getsockname()}断开连接")
             self.client.close()
-            self.client_state = consts.SMPP_CLIENT_STATE_CLOSED
+            self.client_state = consts.CLIENT_STATE_CLOSED
             self.client = None
 
     def run(self, count, loop, interval):
@@ -127,7 +128,9 @@ class SMPPClient:
                 self.command_mapping.get(command_name)(resp, command_name)
             else:
                 self.logger.error("异常数据")
-                with open(f"./data/err_resp_data/{self.fuzz_num}", "wb") as f:
+                dir_str = "data/err_resp_data"
+                create_dir(dir_str)
+                with open(os.path.join(dir_str, f'{self.fuzz_num}'), "wb") as f:
                     f.write(resp)
 
     def enquire(self):
@@ -168,7 +171,7 @@ class SMPPClient:
             'password': config.PASSWORD,
             'system_type': "sms",
             'interface_version': consts.VERSION_34,
-            'addr_ton': consts.TON_INTL,
+            'addr_ton': consts.TON_UNK,
             'addr_npi': consts.NPI_ISDN,
             'address_range': consts.NULL_BYTE,
         }
@@ -191,7 +194,7 @@ class SMPPClient:
             "source_addr": config.SOURCE_ADDR,
             "dest_addr_ton": consts.TON_INTL,
             "dest_addr_npi": consts.NPI_ISDN,
-            "destination_addr": "+8618279230916",
+            "destination_addr": config.DESTINATION_ADDR,
             "esm_class": 0,
             "protocol_id": consts.PID_DEFAULT,
             "priority_flag": 0,
@@ -204,7 +207,7 @@ class SMPPClient:
             "short_message": message,
 
             # Optional params
-            'user_message_reference':100,
+            'user_message_reference': 100,
             # 'source_port':8888,
             # 'source_addr_subunit':2,
             # 'destination_port': 7777,
@@ -214,7 +217,7 @@ class SMPPClient:
             # 'sar_segment_seqnum': 0,
             # 'more_messages_to_send':b'\x01',
             # 'payload_type':1,
-            'message_payload':message,
+            'message_payload': message,
             # 'privacy_indicator':0,
             # 'callback_num':b'\x00',
             # 'callback_num_pres_ind': b'\x00',
@@ -251,7 +254,7 @@ class SMPPClient:
             "source_addr_npi": consts.SMPP_NPI_ISDN,
             "source_addr": config.SOURCE_ADDR,
             'number_of_dests': 1,
-            'dest_addresses': "+8618279230916",
+            'dest_addresses': config.DESTINATION_ADDR,
             "esm_class": 0,
             "protocol_id": consts.SMPP_PID_DEFAULT,
             "priority_flag": 0,
@@ -290,7 +293,7 @@ class SMPPClient:
         pdu = get_pdu(command_name)(message_id=message_id)
         resp_data = pdu.unpack(resp)
         pdu.command_length, pdu.command_id, pdu.command_status, pdu.sequence_number, pdu.message_id = resp_data[:-1]
-        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.SMPP_ESME_ROK:
+        if pdu.sequence_number == self.sequence_number and pdu.command_status == consts.ESME_ROK:
             self.logger.info(f"发送消息成功,{pdu}")
 
     def parse_deliver_sm(self, resp, command_name):
@@ -366,12 +369,12 @@ class SMPPClient:
     def replace_sm(self, message_id, new_message):
         body = {
             'message_id': message_id,
-            'source_addr_ton': consts.SMPP_TON_INTL,
-            "source_addr_npi": consts.SMPP_NPI_ISDN,
+            'source_addr_ton': consts.TON_INTL,
+            "source_addr_npi": consts.NPI_ISDN,
             'source_addr': config.SOURCE_ADDR,
             'schedule_delivery_time': 0,
             'validity_period': 0,
-            'registered_delivery': consts.SMPP_SMSC_DELIVERY_RECEIPT_BOTH,
+            'registered_delivery': consts.SMSC_DELIVERY_RECEIPT_BOTH,
             'sm_default_msg_id': 0,
             'short_message': new_message,
             "data_coding": self.data_coding
@@ -383,12 +386,12 @@ class SMPPClient:
         if pdu.sequence_number == self.sequence_number:
             self.logger.info(f"{command_name}:{pdu}")
 
-    def outbind(self):
-        body = {
-            'system_id': config.SYSTEM_ID,
-            'password': config.PASSWORD,
-        }
-        self.base_send_sm("outbind", **body)
+    # def outbind(self):
+    #     body = {
+    #         'system_id': config.SYSTEM_ID,
+    #         'password': config.PASSWORD,
+    #     }
+    #     self.base_send_sm("outbind", **body)
 
     def unbind(self):
         self.base_send_sm("unbind")
@@ -440,7 +443,7 @@ class SMPPClient:
             payload = pdu.optional_params[4:4 + optional_param_length]
             data = payload[94:-9]
             print(data.decode())
-        if pdu.command_status == consts.SMPP_ESME_ROK:
+        if pdu.command_status == consts.ESME_ROK:
             self.deliver_sm_resp(pdu.sequence_number)
 
     def fuzz(self, count, loop, interval):
@@ -456,14 +459,18 @@ class SMPPClient:
                         self.logger.info(f"Fuzz {self.fuzz_num} send successfully")
                     except BrokenPipeError as e:
                         self.logger.error(f"Fuzz {self.fuzz_num} BrokenPipeError: {e}")
-                        with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                        dir_str = "data/err_send_data"
+                        create_dir(dir_str)
+                        with open(os.path.join(dir_str, f'{self.fuzz_num}'), "wb") as f:
                             f.write(data)
                         self.connect()
                         self.bind()
                         self.client.sendall(data)
                     except Exception as e:
                         self.logger.error(f"Fuzz {self.fuzz_num} failed with error: {e}")
-                        with open(f"./data/err_send_data/{self.fuzz_num}", 'wb') as f:
+                        dir_str = "data/err_send_data"
+                        create_dir(dir_str)
+                        with open(os.path.join(dir_str, f'{self.fuzz_num}'), "wb") as f:
                             f.write(data)
                     finally:
                         self.fuzz_num += 1

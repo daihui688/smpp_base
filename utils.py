@@ -1,8 +1,10 @@
+import os
 import netifaces
 
 from pdu import *
 
 interfaces_ips = {}
+
 
 def get_pdu(command_name):
     try:
@@ -37,6 +39,8 @@ def get_pdu(command_name):
         }[command_name]
     except KeyError:
         raise Exception('Command "%s" is not supported' % command_name)
+
+
 def get_interfaces_and_ips():
     for iface in netifaces.interfaces():
         addrs = netifaces.ifaddresses(iface)
@@ -52,11 +56,13 @@ def get_optional_param_name(num):
             return name
 
 
-
-
-
 def contains_chinese(message):
     for char in message:
         if '\u4e00' <= char <= '\u9fff':
             return True
     return False
+
+
+def create_dir(dir_str):
+    if not os.path.exists(dir_str):
+        os.makedirs(dir_str)

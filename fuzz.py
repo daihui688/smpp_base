@@ -4,6 +4,7 @@ import struct
 import command
 import consts
 from utils import get_pdu
+from pdu import TLV
 
 fake = Faker()
 ascii_chars = ''.join(chr(i) for i in range(128))
@@ -42,16 +43,16 @@ class SMPPFuzz:
         for i in range(num):
             data += self.random_byte
         return data
-    def gen_body(self,command_name):
+
+    def gen_body(self, command_name):
         body = b''
         pdu = get_pdu(command_name)
-        try :
-            pdu.body
-        except AttributeError:
+        if not getattr(self, 'body', None):
             return body
         for k, v in pdu.body.items():
             param = b''
             size = v.size
+            tlv = v.type
             if v.type == str:
                 if not v.size:
                     size = self.random_int
@@ -61,25 +62,31 @@ class SMPPFuzz:
             elif v.type == int:
                 c = consts.INT_PACK_FORMATS.get(v.size)
                 param = struct.pack(">" + c, self.random_ints(v.size))
+            elif type(tlv) == TLV:
+                body += TLV(k).get_tag()
+                tlv_len = tlv.length if tlv.length else len(param)
+                body += tlv_len
+                param = self.random_bytes(tlv_len)
             body += param
         return body
+
     def gen_data(self, command_name, body=None):
         command_id = command.get_command_id(command_name)
         command_status = 0
         self.sequence_number += 1
         if body is None:
-            header = struct.pack(">LLLL", 16, command_id, command_status, self.sequence_number)
+            header = struct.pack(">4L", 16, command_id, command_status, self.sequence_number)
             return header
         else:
             command_length = 16 + len(body)
-            header = struct.pack(">LLLL", command_length, command_id, command_status, self.sequence_number)
+            header = struct.pack(">4L", command_length, command_id, command_status, self.sequence_number)
             data = header + body
             return data
-    def fuzz_data(self,command_name):
+
+    def fuzz_data(self, command_name):
         body = self.gen_body(command_name)
         data = self.gen_data(command_name, body)
         return data
-
 
 
 fuzzer = SMPPFuzz()
